@@ -4,6 +4,7 @@
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
 #from scapy.all import *
 import binascii
+import os
 
 import scapy.utils
 
@@ -43,8 +44,17 @@ class MyPacket:
         print("Dlzka ramca " + str(len(self.data)))
         print("Skutocna dlzka ramca "+str(len(self.data)+4))
         print(self.ethernet_type)
-        print("MAC zdrojova " + self.mac_source)
-        print("MAC cielova " + self.mac_dest)
+        mac_source_str = ""
+        mac_dest_str = ""
+        print(type(self.mac_source))
+        mac_len = int(len(self.mac_source)) #12 lebo je to v stringu
+        for i in range(0, len(self.mac_dest)-2, 2):
+            mac_dest_str += self.mac_dest[i:i+2]+"."
+            mac_source_str += self.mac_source[i:i+2]+"."
+        mac_dest_str += self.mac_dest[mac_len-2: mac_len]
+        mac_source_str += self.mac_source[mac_len - 2: mac_len]
+        print("MAC zdrojova " + mac_source_str.upper())
+        print("MAC cielova " + mac_dest_str.upper())
         print(self.type_p)
         print("IP cielova: " + transform_ip_to_dec(self.ip_dest))
         print("IP zdrojova: " + transform_ip_to_dec(self.ip_source))
@@ -54,9 +64,9 @@ class MyPacket:
 
 
 def main():
-    task = input("Enter the number of task:")
-    file_name = input("Enter name of the file with .pcap")
-    if task == 1:
+    task = input("Enter the number of task: ")
+    file_name = input("Enter name of the file with .pcap: ")
+    if int(task) == 1:
         analyze(file_name)
 
 
@@ -64,17 +74,27 @@ def test():
     # Use a breakpoint in the code line below to debug your script.
     #packet = rdpcap("eth-1.pcap")
     # jeden byte su 2 hexadecimalne znaky (1 hex = 4bity 15->1111)
-    packets = scapy.utils.rdpcap("eth-1.pcap")
+
+    packets = scapy.utils.rdpcap("vzorky/trace-1.pcap")
+    print(packets)
     print(len(bytes(packets[0])))
     for packet in packets:
-        for byte in bytes(packet):
-            #print(hex(byte))
-            return
+        packet = bytes(packet)
+        t = packet[0:6]
+        for i in t:
+            print(i)
+        return
     #i = int(test[:1],16)
 
 def analyze(fname):
-    packets = scapy.utils.rdpcap("eth-1.pcap")
-    packet_number  = 1
+    packets = 0
+    if fname == "":
+        packets = scapy.utils.rdpcap("vzorky/trace-1.pcap")
+    if not os.path.isfile("vzorky/" + fname):
+        packets = scapy.utils.rdpcap("vzorky\eth-1.pcap")
+    else:
+        packets = scapy.utils.rdpcap("vzorky/"+ fname)
+    packet_number = 1
     my_packet_list = []
     for packet in packets:
         packet = bytes(packet)
@@ -118,6 +138,8 @@ def analyze(fname):
 
         #ZISTOVANIE TYPU ETHERNET RAMCA
         eth_type_hex = int(packet[12:14].hex(), 16) #zoberiem si nasledujuce 2B po mac adresach
+        print("TEST")
+        print(type(packet[0:6]))
         eth_type = ""
         if eth_type_hex >= int('0x0800', 16): #ak je to rovne 0800 tak je to cisty ETHERNET II
             eth_type = "Ethernet II"
@@ -129,7 +151,7 @@ def analyze(fname):
                 eth_type = "802.3 RAW"
             else:
                 eth_type = "IEEE 802.3 LLC"
-        my_packet_list.append(MyPacket(packet[0:5].hex(), packet[5:11].hex(), packet[26:30], packet[30:34], typ,
+        my_packet_list.append(MyPacket(packet[0:6].hex(), packet[6:12].hex(), packet[26:30], packet[30:34], typ,
                              packet, packet_number, len(packet), eth_type, protocol_type))
         my_packet_list[packet_number-1].print_info()
         packet_number += 1
@@ -165,7 +187,8 @@ def find_type(hex_val_str):
 
 if __name__ == '__main__':
     #test()
-    analyze("")
+    #analyze("")
+    main()
 
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
