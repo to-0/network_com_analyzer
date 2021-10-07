@@ -13,7 +13,7 @@ icmp_messages = {}
 
 class DefPacket:
     def __init__(self, mac_source, mac_dest, data, packet_number, length):
-        self.mac_source = mac_source
+        self.mac_src = mac_source
         self.mac_dest = mac_dest
         self.data = data
         self.packet_number = packet_number
@@ -38,6 +38,7 @@ class DefPacket:
 
     def analyze_network_layer_protocol(self, value, h_start):
         in_protocol = protocols_dictionary.get("0x" + value)
+
         if in_protocol is None:
             in_protocol = ["None"]
         if len(in_protocol) > 1:
@@ -45,8 +46,9 @@ class DefPacket:
             self.inner_protocol_port = in_protocol[0]
         else:
             self.inner_protocol = " ".join(in_protocol)
+
         if self.inner_protocol == "IPv4":
-            self.ip_source = self.data[26:30].hex()
+            self.ip_src = self.data[26:30].hex()
             self.ip_dest = self.data[30:34].hex()
             v_ihl = self.data[14:15].hex()
             version = int(v_ihl[0], 16)
@@ -60,31 +62,36 @@ class DefPacket:
                 self.ip_in_protocol_port = ip_in_protocol[0]
             else:
                 self.ip_in_protocol = " ".join(ip_in_protocol)
-            self.analyze_transport_l_protocol(header_length)
+            self.analyze_transport_l_protocol(header_length, h_start+header_length)
         elif self.inner_protocol == "ARP":
-            protocol_add_type = self.data[h_start + 5:h_start + 6].hex()
+            protocol_type = self.data[h_start + 2:h_start + 4].hex()
             operation = self.data[h_start + 6:h_start + 8].hex()
+            self.arp_in_protocol = protocols_dictionary.get("0x" + protocol_type)
+            if self.arp_in_protocol is not None:
+                self.arp_in_protocol = " ".join(self.arp_in_protocol)
+            self.ip_src = self.data[h_start + 14:h_start + 18].hex()
+            self.ip_dest = self.data[h_start + 24:h_start + 28].hex()
             if int(operation, 16) == 1:
-                self.operation = "Request"
+                self.arp_operation = "Request"
             else:
-                self.operation = "Reply"
+                self.arp_operation = "Reply"
 
-    def analyze_transport_l_protocol(self, prev_header_length):
+    def analyze_transport_l_protocol(self, prev_header_length, h_start):
         start = 14 + prev_header_length
-        if self.ip_in_protocol != "ICMP":
-            self.source_port = self.data[start:start + 2].hex()  # 2bajty chcem precitat
+        if self.ip_in_protocol == "TCP" or self.ip_in_protocol == "UDP":
+            self.source_port = self.data[h_start:h_start + 2].hex()  # 2bajty chcem precitat
             #print(int(self.source_port, 16))
-            self.dest_port = self.data[start + 2:start + 4].hex()
+            self.dest_port = self.data[h_start + 2:h_start + 4].hex()
             #print(int(self.dest_port, 16))
             if int(self.source_port, 16) > int(self.dest_port, 16):
                 self.transport_layer_protocol = protocols_dictionary.get("0x" + self.dest_port)
                 #print(self.last_layer_protocol)
+            else:
+                self.transport_layer_protocol = protocols_dictionary.get("0x" + self.source_port)
         else:
-            print(self.packet_number)
-            type = self.data[start:start+1].hex()
-            code = self.data[start+1:start+2].hex()
+            type = self.data[h_start:h_start+1].hex()
+            code = self.data[h_start+1:h_start+2].hex()
             self.icmp_message = icmp_messages.get(str(type)+"/"+str(code))
-            print(self.icmp_message)
 
     def print_data(self):
         s = ""
@@ -104,38 +111,40 @@ class DefPacket:
         print("-"*50)
 
     def print_info(self):
-        print('ramec ' + str(self.packet_number))
-        print("Dlzka ramca " + str(len(self.data)))
+        print('Rámec ' + str(self.packet_number))
+        print("Dĺžka rámca " + str(len(self.data)))
         real_length = len(self.data) + 4
         if real_length < 64:
             real_length = 64
 
-        print("Skutocna dlzka ramca " + str(real_length))
+        print("Skutočná dĺžka rámca " + str(real_length))
         print(self.ethernet_type)
         mac_source_str = ""
         mac_dest_str = ""
-        mac_len = int(len(self.mac_source))  # 12 lebo je to v stringu
+        mac_len = int(len(self.mac_src))  # 12 lebo je to v stringu
         for i in range(0, len(self.mac_dest) - 2, 2):
             mac_dest_str += self.mac_dest[i:i + 2] + "."
-            mac_source_str += self.mac_source[i:i + 2] + "."
+            mac_source_str += self.mac_src[i:i + 2] + "."
         mac_dest_str += self.mac_dest[mac_len - 2: mac_len]
-        mac_source_str += self.mac_source[mac_len - 2: mac_len]
-        print("MAC zdrojova " + mac_source_str.upper())
-        print("MAC cielova " + mac_dest_str.upper())
+        mac_source_str += self.mac_src[mac_len - 2: mac_len]
+        print("MAC zdrojová " + mac_source_str.upper())
+        print("MAC cieľová " + mac_dest_str.upper())
         print(self.inner_protocol)
         if self.inner_protocol == "IPv4":
-            if not (self.ip_dest == "" or self.ip_source == ""):
-                print("IP cielova: " + ip_to_output(self.ip_dest))
-                print("IP zdrojova: " + ip_to_output(self.ip_source))
+            if not (self.ip_dest == "" or self.ip_src == ""):
+                print("IP cieľová: " + ip_to_output(self.ip_dest))
+                print("IP zdrojová: " + ip_to_output(self.ip_src))
                 print(self.ip_in_protocol)
                 if hasattr(self, 'transport_layer_protocol'):
                     print(self.transport_layer_protocol)
-                    print("Zdrojovy port: " + str(int(self.source_port, 16)))
-                    print("Cielovy port: " + str(int(self.dest_port, 16)))
+                    print("Zdrojový port: " + str(int(self.source_port, 16)))
+                    print("Cieľový port: " + str(int(self.dest_port, 16)))
                 if self.ip_in_protocol == "ICMP" and hasattr(self, 'icmp_message'):
                     print(self.icmp_message)
         elif self.inner_protocol == "ARP":
-            print(self.operation)
+            print(self.arp_operation)
+            print("IP cieľová: " + ip_to_output(self.ip_dest))
+            print("IP zdrojová: " + ip_to_output(self.ip_src))
         self.print_data()
 
 
@@ -144,13 +153,21 @@ def main():
     load_icmp_messages()
     task = ""
     while task != "end":
-        task = input("Enter the number of task: ")
-        file_name = input("Enter name of the file with .pcap: ")
+        print("Úlohy")
+        print("1 vypíš všetky pakety")
+        print("4 vypíš iba HTTP pakety")
+        print("5 nájdi ARP dvojice")
+        task = input("Číslo úlohy: ")
+        file_name = input("Súbor s .pcap: ")
         packets = load_packets(file_name)
         if int(task) == 1:
             task_1(packets)
         if int(task) == 3:
             task_3_1(packets)
+        if int(task) == 4:
+            task4_a(packets)
+        if int(task) == 5:
+            task4_i(packets)
 
 
 def task_3_1(packet_list): #zoznam ip adries vsetkych odosielajucich uzlov a ip adresa uzla ktory poslal najviac paketov
@@ -161,7 +178,7 @@ def task_3_1(packet_list): #zoznam ip adries vsetkych odosielajucich uzlov a ip 
     for packet in packet_list:  # prejdem vsetky packety, pozriem ktore su ethernet 2 a IPv4
         if packet.ethernet_type == "Ethernet II" and packet.inner_protocol == "IPv4":
             # zoberiem si ip adresu zdrojovu a cez dictionary si ukladam pocet vyskytov tejto ip adresy
-            ip_adress = packet.ip_source
+            ip_adress = packet.ip_src
             if ip_dictionary.get(ip_adress) is not None:
                 ip_dictionary[ip_adress] += 1
             else:
@@ -171,7 +188,7 @@ def task_3_1(packet_list): #zoznam ip adries vsetkych odosielajucich uzlov a ip 
         if value > max_value:
             max_value = value
             max_key = key
-    print("Adresa uzla s najvacsim poctom odoslanych paketov")
+    print("Adresa uzla s najväčším počtom odoslaných paketov ")
     print(str(ip_to_output(max_key)) + " " + str(max_value))
 
 def task4_a(packets): #analyza http komunikacie
@@ -179,10 +196,38 @@ def task4_a(packets): #analyza http komunikacie
         if packet.ethernet_type == "Ethernet II" and packet.inner_protocol == "IPv4":
             return
 
+def task4_i(packets): #ARP dvojice
+    counter = 0
+    for packet in packets:
+        if packet.inner_protocol == "ARP":
+            #print(packet.arp_operation)
+
+                for packet2 in packets:
+                    if packet2.packet_number == packet.packet_number or packet2.inner_protocol != "ARP":
+                        continue
+                    if packet2.arp_operation == "Reply":
+                        if packet2.ip_src == packet.ip_dest:
+                            counter += 1
+                            if packet.arp_operation == "Request":
+                                print("Komunikácia číslo " + str(counter))
+                                print(packet.arp_operation + "," + " IP adresa " + ip_to_output(packet.ip_dest) +
+                                      " MAC adresa: ?")
+                                print("Zdrojová IP: " + ip_to_output(packet.ip_src) + "Cielova "
+                                      + ip_to_output(packet.ip_dest))
+                                packet.print_info()
+
+                            print(packet2.arp_operation + "," + " IP adresa " + ip_to_output(
+                                packet2.ip_src) + " MAC adresa: "+packet2.mac_src)
+                            print("Zdrojoá IP: " + ip_to_output(packet2.ip_src) + " Cieľová "
+                                  + ip_to_output(packet2.ip_dest))
+                            packet2.print_info()
+                            break
+
 
 def task_1(packets):
     for packet in packets:
         packet.print_info()
+    task_3_1(packets)
 
 
 def load_packets(fname):
