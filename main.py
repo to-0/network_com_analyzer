@@ -10,9 +10,9 @@ icmp_messages = {}
 
 
 class DefPacket:
-    def __init__(self, mac_source, mac_dest, data, packet_number, length):
-        self.mac_src = mac_source
+    def __init__(self, mac_dest, mac_source, data, packet_number, length):
         self.mac_dest = mac_dest
+        self.mac_src = mac_source
         self.data = data
         self.packet_number = packet_number
         self.ethernet_type = ""
@@ -216,31 +216,42 @@ def task4_a(packets):
             return
 
 
+def find_all_arps(target_ip, packets):
+    packet_list = []
+    for packet in packets:
+        if packet.network_l_protocol == "ARP" and packet.arp_operation == "Request" and packet.ip_dest == target_ip:
+            packet_list.append(packet)
+    return packet_list
+
 # ARP dvojice
 def task4_i(packets):
     counter = 0
+    found_ip_adresses = {}
     for packet in packets:
-        if packet.network_l_protocol == "ARP":
-            for packet2 in packets:
-                if packet2.packet_number == packet.packet_number or packet2.network_l_protocol != "ARP":
-                    continue
-                if packet2.arp_operation == "Reply":
-                    if packet2.ip_src == packet.ip_dest:
-                        counter += 1
-                        if packet.arp_operation == "Request":
-                            print("Komunikácia číslo " + str(counter))
-                            print(packet.arp_operation + "," + " IP adresa " + ip_to_output(packet.ip_dest) +
-                                  " MAC adresa: ?")
-                            print("Zdrojová IP: " + ip_to_output(packet.ip_src) + "Cielova "
-                                  + ip_to_output(packet.ip_dest))
-                            packet.print_info()
-
-                        print(packet2.arp_operation + "," + " IP adresa " + ip_to_output(
-                            packet2.ip_src) + " MAC adresa: " + packet2.mac_src)
-                        print("Zdrojoá IP: " + ip_to_output(packet2.ip_src) + " Cieľová "
-                              + ip_to_output(packet2.ip_dest))
-                        packet2.print_info()
-                        break
+        if packet.network_l_protocol == "ARP" and packet.arp_operation == "Request" \
+                and found_ip_adresses.get(packet.ip_dest) is None:
+            print("Komunikácia číslo " + str(counter))
+            print(packet.arp_operation + "," + " IP adresa " + ip_to_output(packet.ip_dest) +
+                  " MAC adresa: ?")
+            print("Zdrojová IP: " + ip_to_output(packet.ip_src) + " Cielova "
+                  + ip_to_output(packet.ip_dest))
+            if found_ip_adresses.get(packet.ip_dest) is None:
+                # oznacim ze tuto komunikaciu som uz hladal
+                found_ip_adresses[packet.ip_dest] = 1
+            # zozbieram vsetky ramce ktore su request, maju rovnaku cielovu ipcku a teda hladaju k nej mac
+            packet_list = find_all_arps(packet.ip_dest, packets)
+            for p in packet_list:
+                p.print_info()
+                print("")
+            for p2 in packets:
+                if p2.network_l_protocol == "ARP" and p2.arp_operation == "Reply" \
+                        and p2.ip_src == packet.ip_dest:
+                    print(p2.arp_operation + "," + " IP adresa " + ip_to_output(packet.ip_dest) +
+                          " MAC adresa: " + p2.mac_src)
+                    print("Zdrojová IP: " + ip_to_output(p2.ip_src) + " Cielova "
+                          + ip_to_output(p2.ip_dest))
+                    p2.print_info()
+            counter += 1
 
 
 def task_1(packets):
