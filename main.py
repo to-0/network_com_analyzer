@@ -218,8 +218,11 @@ def main():
             task4h(packets)
         if int(task) == 10:
             task4_i(packets)
+        if int(task) == 17:
+            test(packets)
 
         print("Úlohy")
+        print(len(packets))
         print("1 vypíš všetky pakety")
         print("2 vypíš iba HTTP komunikáciu")
         print("3 vypíš iba HTTPs komunikáciu")
@@ -293,10 +296,19 @@ def task4g(packets):
                                 packet2.print_info()
 
 
+
+
+def task4h(packets):
+    for packet in packets:
+        if packet.transport_layer_protocol == "ICMP":
+            packet.print_info()
+
+
 def find_all_arps(target_ip, packets, found_ip_adress_index, index, destination_ip):
     packet_list = []
     for packet in packets:
-        if packet.network_l_protocol == "ARP" and packet.arp_operation == "Request" and packet.ip_dest == target_ip:
+        # packet = packets[i]
+        if packet.network_l_protocol == "ARP" and packet.arp_operation == "Request" and packet.ip_dest == target_ip and packet.ip_src == destination_ip:
             # ak je to request, skontrolujem  ci je jeho packet number vacsi alebo rovny ako posledny packet
             # pre tuto komunikaciu, aby nenastala situacia ze mam request, request reply, potom znova requesty ale
             # a ja by som matchola j requesty na ktore uz prisla reply
@@ -309,62 +321,61 @@ def find_all_arps(target_ip, packets, found_ip_adress_index, index, destination_
             # ak by som to nekontroloval mohol by som skoncit skor napr request reply request request tak pri
             # komunikacii 2 (request, request) by som skoncil hned reply ale ta bola poslana pred requestami
             if packet.packet_number > found_ip_adress_index:
+                packet_list.append(packet)
                 return packet_list
     return packet_list
-
-
-def task4h(packets):
-    for packet in packets:
-        if packet.transport_layer_protocol == "ICMP":
-            packet.print_info()
-
 
 # ARP dvojice
 def task4_i(packets):
     counter = 1
     found_ip_adresses = {}
+    unmatched = []
     for packet in packets:
         if packet.network_l_protocol == "ARP" and packet.arp_operation == "Request":
             # found znaci, cislo posledneho paketu predoslej arp komunikacie na rovnaku ip adresu (konci bud reply,
             # alebo ked uz proste najdem vsetky request a ziadna reply)
-            found = found_ip_adresses.get(packet.ip_dest)
+            found = found_ip_adresses.get((packet.ip_dest, packet.ip_src))
             if found is not None and found >= packet.packet_number:
                 continue
             # aby ked ide po sebe viacero requestov najdem reply tak aby som potom znova nevypisoval tie requesty
             # len o 1 menej a neoznacil to za novu komunikaciu
 
             # ulozim si teda cislo prveho paketu novej komunikacie
-            found_ip_adresses[packet.ip_dest] = packet.packet_number
+            # komunikacia je definovana ip_dest a ip_src, 2d dictionary to je
+            found_ip_adresses[packet.ip_dest, packet.ip_src] = packet.packet_number
+
+            # zozbieram vsetky ramce ktore su request, maju rovnaku cielovu ipcku a teda hladaju k nej mac,v ramci
+            # jednej komunikacie
+            packet_list = find_all_arps(packet.ip_dest, packets, found_ip_adresses[packet.ip_dest, packet.ip_src],
+                                        packet.packet_number, packet.ip_src)
+            # ak som nasiel este nejake requesty pred reply tak si zaznacim k tejto cielovej ip adrese (pre ktoru hladam
+            # mac adresu) cislo posledneho request paketu
+            if len(packet_list) > 0:
+                # print("Tu som a posledny packet number je " + str(packet_list[-1].packet_number))
+                # matchnem tam uplne posledny request co som nasiel zatial
+                found_ip_adresses[packet.ip_dest, packet.ip_src] = packet_list[-1].packet_number
+                if packet_list[-1].arp_operation != "Reply":
+                    unmatched.append(packet_list)
+                    continue
             print("Komunikácia číslo " + str(counter))
             print(packet.arp_operation + "," + " IP adresa " + ip_to_output(packet.ip_dest) +
                   " MAC adresa: ?")
             print("Zdrojová IP: " + ip_to_output(packet.ip_src) + " Cielova "
                   + ip_to_output(packet.ip_dest))
-            # zozbieram vsetky ramce ktore su request, maju rovnaku cielovu ipcku a teda hladaju k nej mac,v ramci
-            # jednej komunikacie
-            packet_list = find_all_arps(packet.ip_dest, packets, found_ip_adresses[packet.ip_dest], packet.packet_number
-                                        , packet.ip_src)
-            # ak som nasiel este nejake requesty pred reply tak si zaznacim k tejto cielovej ip adrese (pre ktoru hladam
-            # mac adresu) cislo posledneho request paketu
-            if len(packet_list) > 0:
-                print("Tu som a posledny packet number je " + str(packet_list[-1].packet_number))
-                # matchnem tam uplne posledny request co som nasiel zatial
-                found_ip_adresses[packet.ip_dest] = packet_list[-1].packet_number
             for p in packet_list:
                 p.print_info()
                 print("")
-            for p2 in packets:
-                if p2.network_l_protocol == "ARP" and p2.arp_operation == "Reply" \
-                        and p2.ip_src == packet.ip_dest and p2.packet_number > packet.packet_number and p2.ip_dest == packet.ip_src:
-                    print(p2.arp_operation + "," + " IP adresa " + ip_to_output(packet.ip_dest) +
-                          " MAC adresa: " + p2.mac_src)
-                    print("Zdrojová IP: " + ip_to_output(p2.ip_src) + " Cielova "
-                          + ip_to_output(p2.ip_dest))
-                    p2.print_info()
-                    # ak je aj reply zaznacim si jej cislo do dictionary
-                    found_ip_adresses[packet.ip_dest] = p2.packet_number
-                    break
             counter += 1
+    print("Neúplné komunikácie requesty:")
+    for un_com in unmatched:
+        for packet in un_com:
+            packet.print_info()
+    print("Neuplne komunikacie replies: ")
+    for packet in packets:
+        if packet.network_l_protocol == "ARP" and packet.arp_operation == "Reply":
+            found = found_ip_adresses.get((packet.ip_src, packet.ip_dest)) # kedze je to naopak
+            if found is None or found < packet.packet_number:
+                packet.print_info()
 
 
 def task_1(packets):
@@ -397,7 +408,6 @@ def ip_to_output(ip):
             res += "."
     return res
 
-
 protocols = []
 
 
@@ -420,6 +430,11 @@ def load_icmp_messages():
         if line[0][0] != "#":
             icmp_messages[arr[0]] = arr[1:]
 
+
+def test(packets):
+    for i in range(390,len(packets)):
+        packet = packets[i]
+        packet.print_info()
 
 if __name__ == '__main__':
     # analyze("")
