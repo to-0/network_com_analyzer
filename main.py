@@ -2,12 +2,12 @@
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-import os
 import scapy.utils
-
+import os
 protocols_dictionary = {}
 icmp_messages = {}
 tftp_coms = {}
+
 
 class DefPacket:
     def __init__(self, mac_dest, mac_source, data, packet_number, length):
@@ -58,7 +58,7 @@ class DefPacket:
                     self.transport_layer_protocol_in = "None"
 
                 if self.transport_layer_protocol == "TCP":
-                    self.tcp_flag = self.data[start+12:start+14]
+                    self.tcp_flag = self.data[start+12:start+14].hex()
                 if self.transport_layer_protocol == "UDP":
                     if self.transport_layer_protocol_in == "TFTP": #nasiel som prve tftp
                         tftp_coms[self.source_port] = [int(self.ip_dest, 16), int(self.ip_src, 16)]
@@ -110,7 +110,7 @@ class DefPacket:
             nb = int(self.data[14:16].hex(), 16)
             if nb == int('0xaaaa', 16):
                 self.ethernet_type = "Ethernet 802.3 LLC + SNAP"
-                # podla dsap sa da zistit protokol v LLC AJ SNAP
+                # podla dsap sa da zistit protokol v LLC AJ SNAP myslim ale este si to overim
                 self.analyze_network_layer_protocol(self.data[16:17].hex())
             elif nb == int('0xffff', 16):
                 self.ethernet_type = "802.3 RAW"
@@ -142,7 +142,8 @@ class DefPacket:
                 print(s)
                 s = ""
             i += 1
-        if (i % 16) != 0:
+        # ak tam este nieco zostalo
+        if s != "":
             print(s)
         print("-" * 50)
 
@@ -175,8 +176,8 @@ class DefPacket:
                     print(self.transport_layer_protocol_in)
                     print("Zdrojový port: " + str(int(self.source_port, 16)))
                     print("Cieľový port: " + str(int(self.dest_port, 16)))
-                if self.transport_layer_protocol == "TCP":
-                    print(self.tcp_flag.hex())
+                # if self.transport_layer_protocol == "TCP":
+                #     print(self.tcp_flag)
                 if self.transport_layer_protocol == "ICMP" and hasattr(self, 'icmp_message'):
                     print(self.icmp_message)
         elif self.network_l_protocol == "ARP":
@@ -204,12 +205,12 @@ def main():
     print("10 nájdi ARP dvojice")
     task = input("Číslo úlohy: ")
     while int(task) != -1:
-        file_name = input("Súbor s .pcap: ")
+        file_name = input("Cesta k súboru s .pcap: ")
         packets = load_packets(file_name)
         if int(task) == 1:
             task_1(packets)
         if int(task) == 2:
-            task_3_1(packets)
+            task4_a(packets)
         if int(task) == 4:
             task4_a(packets)
         if int(task) == 8:
@@ -260,41 +261,121 @@ def task_3_1(packet_list):
 
 
 # analyza http komunikacie
+def find_comm_start(comm):
+    pass
+
 def task4_a(packets):
+    http_packets = []
+    compl_comms = []
+    incompl_coms = []
     for packet in packets:
-        if packet.ethernet_type == "Ethernet II" and packet.network_l_protocol == "IPv4":
-            return
+        if packet.ethernet_type == "Ethernet II" and packet.network_l_protocol == "IPv4" \
+                and packet.transport_layer_protocol == "TCP" and packet.transport_layer_protocol_in == "HTTP":
+            http_packets.append(packet)
+            # print("Paket "+str(packet.packet_number))
+            # print(packet.tcp_flag)
+            # flags = bin(int(packet.tcp_flag, 16))
+            # flags = flags[6:] # potrebujem iba 12 bitov od konca na flagy
+            # #ack =
+            # print(flags)
+    i = 0
+    comm = []
+    for packet in http_packets:
+        print("Paket "+str(packet.packet_number))
+        print(packet.tcp_flag)
+        flags = bin(int(packet.tcp_flag, 16))
+        # potrebujem iba 12 bitov od konca na flagy
+        print(flags)
+        flags = flags[6:]
+        print(flags)
+        print(int(flags, 2))
+        flags = int(flags,  2)
+        syn, ack = 0, 0
+        # hladam prvu zacatu komunikaciu
+        if (flags & 16) == 16:
+            ack = 1
+        if (flags & 2) == 2:
+            syn = 1
+        # mam prvy paket ktory zacina komunikaciu asi
+        if ack == 1:
+            comm.append(packet)
+            # idem hladat k tomu reply syn ack
+            for k in range(i+1, len(packets)):
+                p2 = packets[i]
+                flags = bin(int(p2.tcp_flag, 16))
+                flags = flags[6:]
+                flags = int(flags, 2)
+                syn, ack = 0, 0
+                if (flags & 16) == 16:
+                    ack = 1
+                if (flags & 2) == 2:
+                    syn = 1
+                if ack == 1 and syn == 1:
+                    if p2.ip_src == packet.ip_dest and p2.ip_dest == packet.ip_src and p2.dest_port == packet.source_port and p2.source_port == packet.dest_port:
+                        comm.append(p2)
 
 
-def task4g(packets):
+
+
+def find_one_tftp_communication(comslist,ip_src, ip_dest, port_src, port_dst, index, packets):
+    #idem iba dalej od toho paketu
+
+    length = len(packets)
+    i = index
+    while i < length:
+        packet = packets[i]
+        if port_dst == 69:
+            comslist.append(packet)
+            packets.remove(packet)
+            length -= 1
+            continue
+        if packet.ip_src == ip_src and packet.ip_dest == ip_dest and packet.source_port == port_src and packet.dest_port == port_dst:
+            comslist.append(packet)
+            packets.remove(packet)
+            length -= 1
+            continue
+        elif packet.ip_dest == ip_src and packet.ip_src == ip_dest and packet.dest_port == port_src and packet.source_port == port_dst:
+            comslist.append(packet)
+            packets.remove(packet)
+            length -= 1
+            continue
+        i += 1
+
+
+def task4g(packets): #TFTP KOMUNIKACIA
     counter = 0
-    processed_com = {}
+    comms = []
+    tftps = []
     for packet in packets:
         if packet.ethernet_type == "Ethernet II" and packet.network_l_protocol == "IPv4":
             if packet.transport_layer_protocol == "UDP" and packet.transport_layer_protocol_in == "TFTP":
-                counter += 1
-                ask = processed_com.get(packet.source_port)
-                if ask is not None:
-                    continue
-                ask = processed_com.get(packet.dest_port)
-                if ask is not None:
-                    continue
-                processed_com[packet.source_port] = 1
-                print("komunikacia "+str(counter))
-                print("Zdrojový port: " + str(int(packet.source_port, 16)))
-                print("Cieľová IP adresa " + ip_to_output(packet.ip_dest) +
-                      " Zdrojová IP adresa: " +ip_to_output(packet.ip_src))
-                packet.print_info()
-                for packet2 in packets:
-                    if packet2 == packet:
-                        continue
-                    if packet2.ethernet_type == "Ethernet II" and packet2.network_l_protocol == "IPv4":
-                        if packet2.transport_layer_protocol == "UDP" and packet2.transport_layer_protocol_in == "TFTP":
-                            if packet2.ip_dest == packet.ip_dest and packet2.ip_src == packet2.ip_src and packet2.source_port == packet.source_port:
-                                packet2.print_info()
-                            elif packet2.ip_dest == packet.ip_src and packet2.ip_src == packet.ip_dest and packet2.dest_port == packet.source_port:
-                                packet2.print_info()
-
+                tftps.append(packet)
+    i = 0
+    list_com = []
+    while i < len(tftps):
+        packet = tftps[i]
+        # sem hodim aj ked je iba 1 paket bez ziadnej odpovede ale asi sa to pocita este ako komunikacia? o uplnej
+        # a neuplnej pisu len v ramci tcp protokolu a parovat mame iba arp ci?
+        if int(packet.dest_port, 16) == 69:
+            list_com.append(packet)
+            tftps.remove(packet)
+            continue
+        find_one_tftp_communication(list_com, packet.ip_src, packet.ip_dest, packet.source_port, packet.dest_port, i,
+                                           tftps)
+        comms.append(list_com)
+        list_com = []
+    for communication in comms:
+        counter += 1
+        print("Komunikácia číslo " + str(counter))
+        length_list = len(communication)
+        j = 0
+        for packet in communication:
+            j += 1
+            if length_list > 20 and (10 < j < (length_list - 10)):
+                if j == 11:
+                    print("...")
+                continue
+            packet.print_info()
 
 
 
@@ -304,10 +385,11 @@ def task4h(packets):
             packet.print_info()
 
 
-def find_all_arps(target_ip, packets, found_ip_adress_index, index, destination_ip):
+def find_arp_pair(target_ip, packets, found_ip_adress_index, index, destination_ip):
     packet_list = []
-    for packet in packets:
-        # packet = packets[i]
+    length = len(packets)
+    for i in range(index, length, 1):
+        packet = packets[i]
         if packet.network_l_protocol == "ARP" and packet.arp_operation == "Request" and packet.ip_dest == target_ip and packet.ip_src == destination_ip:
             # ak je to request, skontrolujem  ci je jeho packet number vacsi alebo rovny ako posledny packet
             # pre tuto komunikaciu, aby nenastala situacia ze mam request, request reply, potom znova requesty ale
@@ -326,6 +408,8 @@ def find_all_arps(target_ip, packets, found_ip_adress_index, index, destination_
     return packet_list
 
 # ARP dvojice
+
+
 def task4_i(packets):
     counter = 1
     found_ip_adresses = {}
@@ -346,7 +430,8 @@ def task4_i(packets):
 
             # zozbieram vsetky ramce ktore su request, maju rovnaku cielovu ipcku a teda hladaju k nej mac,v ramci
             # jednej komunikacie
-            packet_list = find_all_arps(packet.ip_dest, packets, found_ip_adresses[packet.ip_dest, packet.ip_src],
+            packet_list = []
+            packet_list = find_arp_pair(packet.ip_dest, packets, found_ip_adresses[packet.ip_dest, packet.ip_src],
                                         packet.packet_number, packet.ip_src)
             # ak som nasiel este nejake requesty pred reply tak si zaznacim k tejto cielovej ip adrese (pre ktoru hladam
             # mac adresu) cislo posledneho request paketu
@@ -357,25 +442,54 @@ def task4_i(packets):
                 if packet_list[-1].arp_operation != "Reply":
                     unmatched.append(packet_list)
                     continue
-            print("Komunikácia číslo " + str(counter))
-            print(packet.arp_operation + "," + " IP adresa " + ip_to_output(packet.ip_dest) +
-                  " MAC adresa: ?")
-            print("Zdrojová IP: " + ip_to_output(packet.ip_src) + " Cielova "
-                  + ip_to_output(packet.ip_dest))
-            for p in packet_list:
-                p.print_info()
-                print("")
-            counter += 1
+                else:
+                    print("Komunikácia číslo " + str(counter))
+                    print(packet.arp_operation + "," + " IP adresa " + ip_to_output(packet.ip_dest) +
+                          " MAC adresa: ?")
+                    print("Zdrojová IP: " + ip_to_output(packet.ip_src) + " Cielova "
+                          + ip_to_output(packet.ip_dest))
+                    length_list = len(packet_list)
+                    j = 0
+                    for p in packet_list:
+                        j += 1
+                        if length_list > 20 and (10 < j < (length_list - 10)):
+                            if j == 11:
+                                print("...")
+                            continue
+                        p.print_info()
+                        print("")
+                    counter += 1
     print("Neúplné komunikácie requesty:")
+    length_list = len(unmatched)
+    j = 0
     for un_com in unmatched:
         for packet in un_com:
+            j += 1
+            if length_list > 20 and (10 < j < (length_list - 10)):
+                if j == 11:
+                    print("...")
+                continue
             packet.print_info()
-    print("Neuplne komunikacie replies: ")
+
+    length_list = len(unmatched)
+    j = 0
+    unmatched_replies = []
     for packet in packets:
         if packet.network_l_protocol == "ARP" and packet.arp_operation == "Reply":
             found = found_ip_adresses.get((packet.ip_src, packet.ip_dest)) # kedze je to naopak
             if found is None or found < packet.packet_number:
-                packet.print_info()
+                unmatched_replies.append(packet)
+                #packet.print_info()
+    length_list = len(unmatched_replies)
+    j = 0
+    if length_list > 0:
+        print("Neuplne komunikacie replies: ")
+    for packet in unmatched_replies:
+        if length_list > 20 and (10 < j < (length_list - 10)):
+            if j == 11:
+                print("...")
+            continue
+        packet.print_info()
 
 
 def task_1(packets):
@@ -386,10 +500,10 @@ def task_1(packets):
 
 def load_packets(fname):
     # packets = 0
-    if not os.path.isfile("vzorky/" + fname):
-        packets = scapy.utils.rdpcap("vzorky\eth-1.pcap")
+    if not os.path.isfile(fname):
+        packets = scapy.utils.rdpcap("vzorky/eth-1.pcap")
     else:
-        packets = scapy.utils.rdpcap("vzorky/" + fname)
+        packets = scapy.utils.rdpcap(fname)
     packet_number = 1
     my_packet_list = []
     for packet in packets:
@@ -408,7 +522,6 @@ def ip_to_output(ip):
             res += "."
     return res
 
-protocols = []
 
 
 def load_dictionary():
