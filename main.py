@@ -324,6 +324,7 @@ def find_one_tftp_communication(comslist,ip_src, ip_dest, port_src, port_dst, in
     i = index
     while i < length:
         packet = packets[i]
+        # toto este skontrolovat ten prvy if asi je zbytocny a hlavne zle
         if port_dst == 69:
             comslist.append(packet)
             packets.remove(packet)
@@ -360,7 +361,17 @@ def task4g(packets): #TFTP KOMUNIKACIA
             list_com.append(packet)
             tftps.remove(packet)
             continue
-        find_one_tftp_communication(list_com, packet.ip_src, packet.ip_dest, packet.source_port, packet.dest_port, i,
+        # toto s tym prvym paketom este raz skontrolovat lebo som uz moc unaveny
+        #dal som tam uz ten pociatocny paket
+        if len(list_com) > 0:
+            # ak tam uz je prvy paket co zacina tu komunikaciu na porte tak si ho zoberiem
+            # a celu komunikaciu hladam vzhladom na jeho ip adresy a source port, dest port zoberiem toho paketu
+            # kde teraz som, ak sa budu lisit iba tam tak to nevadi vobec lebo ten sa len tak random zmeni myslim
+            p = list_com[0]
+            find_one_tftp_communication(list_com, p.ip_src, p.ip_dest, p.source_port, packet.dest_port,
+                                        i, tftps)
+        else:
+            find_one_tftp_communication(list_com, packet.ip_src, packet.ip_dest, packet.source_port, packet.dest_port, i,
                                            tftps)
         comms.append(list_com)
         list_com = []
