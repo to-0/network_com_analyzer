@@ -260,35 +260,29 @@ def task_3_1(packet_list):
     print(str(ip_to_output(max_key)) + " " + str(max_value))
 
 
+def filter_packets_by_tcpin_protocol(packets, protocol):
+    filtered_list = []
+    for packet in packets:
+        if packet.ethernet_type == "Ethernet II" and packet.network_l_protocol == "IPv4" \
+                and packet.transport_layer_protocol == "TCP" and packet.transport_layer_protocol_in == protocol:
+            filtered_list.append(packet)
+    return filtered_list
 # analyza http komunikacie
 def find_comm_start(comm):
     pass
 
 def task4_a(packets):
-    http_packets = []
+    http_packets = filter_packets_by_tcpin_protocol(packets, "HTTP")
     compl_comms = []
     incompl_coms = []
-    for packet in packets:
-        if packet.ethernet_type == "Ethernet II" and packet.network_l_protocol == "IPv4" \
-                and packet.transport_layer_protocol == "TCP" and packet.transport_layer_protocol_in == "HTTP":
-            http_packets.append(packet)
-            # print("Paket "+str(packet.packet_number))
-            # print(packet.tcp_flag)
-            # flags = bin(int(packet.tcp_flag, 16))
-            # flags = flags[6:] # potrebujem iba 12 bitov od konca na flagy
-            # #ack =
-            # print(flags)
     i = 0
     comm = []
-    for packet in http_packets:
-        print("Paket "+str(packet.packet_number))
-        print(packet.tcp_flag)
+
+    while i < len(http_packets):
+        packet = http_packets[i]
         flags = bin(int(packet.tcp_flag, 16))
         # potrebujem iba 12 bitov od konca na flagy
-        print(flags)
         flags = flags[6:]
-        print(flags)
-        print(int(flags, 2))
         flags = int(flags,  2)
         syn, ack = 0, 0
         # hladam prvu zacatu komunikaciu
@@ -298,21 +292,82 @@ def task4_a(packets):
             syn = 1
         # mam prvy paket ktory zacina komunikaciu asi
         if ack == 1:
+            # znacim si iba kroky handshaku nastal prvy
+            handshake_steps = 1
+            end_com_steps = 0
             comm.append(packet)
             # idem hladat k tomu reply syn ack
-            for k in range(i+1, len(packets)):
-                p2 = packets[i]
+            k = i+1
+            while k < len(http_packets):
+                p2 = http_packets[i]
                 flags = bin(int(p2.tcp_flag, 16))
                 flags = flags[6:]
                 flags = int(flags, 2)
-                syn, ack = 0, 0
+
+                # NASTAVENIE FLAGOV
+                syn, ack, rst, fin = 0, 0, 0, 0
                 if (flags & 16) == 16:
                     ack = 1
                 if (flags & 2) == 2:
                     syn = 1
-                if ack == 1 and syn == 1:
+                if (flags & 4) == 4:
+                    rst = 1
+                if (flags & 1) == 1:
+                    fin = 1
+                # KONTROLA DOKONCENIA HANDSHAKE
+                # mam paket co ma ack asyn ale musim pozriet ci to je odpoved na ten moj co zacina komunikaciu
+                if ack == 1 and syn == 1 and handshake_steps == 1:
+                    # je to odpoved
                     if p2.ip_src == packet.ip_dest and p2.ip_dest == packet.ip_src and p2.dest_port == packet.source_port and p2.source_port == packet.dest_port:
                         comm.append(p2)
+                        http_packets.remove(p2)
+                        handshake_steps = 2
+                    else:
+                        # preskakujem
+                        k += 1
+                # posledny krok handshaku odpovedam serveru tiez ack
+                elif ack == 1 and handshake_steps == 2:
+                    if p2.ip_src == packet.ip_src and p2.ip_dest == packet.ip_dest and p2.dest_port == packet.dest_port and p2.source_port == packet.source_port:
+                        comm.append(p2)
+                        http_packets.remove(p2)
+                        # hotovo nastal handshake
+                        handshake_steps = 3
+                    else:
+                        # preskakujem
+                        k += 1
+
+                # HANDSHAKE UZ MAME ZA SEBOU
+                # handshake uz je a teraz tam hadzem hocico pokial nepride koniec komunikacie alebo koniec paketu
+                elif handshake_steps == 3:
+                    # je to klient
+                    if p2.ip_src == packet.ip_src and p2.ip_dest == packet.ip_dest and p2.dest_port == packet.dest_port and p2.source_port == packet.source_port:
+                        comm.append(p2)
+                        http_packets.remove(p2)
+                        # 1 a 2 sposob skoncenia komunikacie, klient posle iba rst a ack serveru alebo iba rst
+                        if (rst == 1 and ack == 1) or rst == 1:
+                            compl_comms.append(comm)
+                            comm = []
+                            break
+                        if fin == 1 and end_com_steps == 0: # zacina sa koniec komunikacie
+                            end_com_steps = 1
+                        if ack == 1 and end_com_steps == 3:
+                            compl_comms.append(comm)
+                            comm = []
+                            break
+                    # je to server
+                    if p2.ip_src == packet.ip_dest and p2.ip_dest == packet.ip_src and p2.dest_port == packet.source_port and p2.source_port == packet.dest_port:
+                        comm.append(p2)
+                        http_packets.remove(p2)
+                        if ack == 1 and end_com_steps == 1:
+                            end_com_steps = 2
+                        if fin == 1 and end_com_steps == 2:
+                            end_com_steps = 3
+            # ked som presiel az na koniec paketov a nevyskocil som skor (komunikacia neskoncila)
+            # nieco budem mat v pole comm a teda je to nekompletna komunikacia
+            if len(comm) > 0:
+                incompl_coms.append(comm)
+                comm = []
+
 
 
 
@@ -342,37 +397,39 @@ def find_one_tftp_communication(comslist,ip_src, ip_dest, port_src, port_dst, in
             continue
         i += 1
 
+# TFTP KOMUNIKACIA
 
-def task4g(packets): #TFTP KOMUNIKACIA
+
+def task4g(packets):
     counter = 0
+    # list vsetkych komunikacii
     comms = []
-    tftps = []
-    for packet in packets:
-        if packet.ethernet_type == "Ethernet II" and packet.network_l_protocol == "IPv4":
-            if packet.transport_layer_protocol == "UDP" and packet.transport_layer_protocol_in == "TFTP":
-                tftps.append(packet)
+    tftps = http_packets = filter_packets_by_tcpin_protocol(packets, "TFTP")
+    # pozbieram si vsetky tftp pakety
     i = 0
+    # list komunikacie
     list_com = []
     while i < len(tftps):
         packet = tftps[i]
         # sem hodim aj ked je iba 1 paket bez ziadnej odpovede ale asi sa to pocita este ako komunikacia? o uplnej
         # a neuplnej pisu len v ramci tcp protokolu a parovat mame iba arp ci?
+        # zacina sa komunikacia hodim prvy paket a pokracujem dalej
         if int(packet.dest_port, 16) == 69:
             list_com.append(packet)
             tftps.remove(packet)
             continue
         # toto s tym prvym paketom este raz skontrolovat lebo som uz moc unaveny
-        #dal som tam uz ten pociatocny paket
+        # dal som tam uz ten pociatocny paket
         if len(list_com) > 0:
             # ak tam uz je prvy paket co zacina tu komunikaciu na porte tak si ho zoberiem
             # a celu komunikaciu hladam vzhladom na jeho ip adresy a source port, dest port zoberiem toho paketu
             # kde teraz som, ak sa budu lisit iba tam tak to nevadi vobec lebo ten sa len tak random zmeni myslim
             p = list_com[0]
-            find_one_tftp_communication(list_com, p.ip_src, p.ip_dest, p.source_port, packet.dest_port,
+            find_one_tftp_communication(list_com, p.ip_src, p.ip_dest, p.source_port, packet.source_port,
                                         i, tftps)
         else:
-            find_one_tftp_communication(list_com, packet.ip_src, packet.ip_dest, packet.source_port, packet.dest_port, i,
-                                           tftps)
+            find_one_tftp_communication(list_com, packet.ip_src, packet.ip_dest, packet.source_port, packet.dest_port,
+                                        i, tftps)
         comms.append(list_com)
         list_com = []
     for communication in comms:
@@ -389,12 +446,30 @@ def task4g(packets): #TFTP KOMUNIKACIA
             packet.print_info()
 
 
-
-def task4h(packets):
+def task4h(packets): # ICMP
+    icmps = []
     for packet in packets:
         if packet.transport_layer_protocol == "ICMP":
-            packet.print_info()
-
+            icmps.append(packet)
+    coms = []
+    i = 0
+    while i < len(icmps):
+        p1 = icmps[i]
+        j = i+1
+        com = [p1]
+        while j < len(icmps):
+            p2 = icmps[j]
+            if p1.ip_src == p2.ip_src and p2.ip_dest == p2.ip_dest:
+                com.append(p2)
+                icmps.remove(p2)
+                continue
+            elif p1.ip_src == p2.ip_dest and p2.ip_dest == p2.ip_src:
+                com.append(p1)
+                icmps.remove(p2)
+                continue
+            j += 1
+        coms.append(com)
+        i += 1
 
 def find_arp_pair(target_ip, packets, found_ip_adress_index, index, destination_ip):
     packet_list = []
@@ -504,7 +579,10 @@ def task4_i(packets):
 
 
 def task_1(packets):
+    #indexes = [8,42,463,1293]
     for packet in packets:
+        #if packet.packet_number not in indexes:
+        #    continue
         packet.print_info()
     task_3_1(packets)
 
