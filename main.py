@@ -316,8 +316,6 @@ def task4_af(packets, protocol):
         start_i_afterhs = 0
         while i < len(comm):
             p1 = comm[i]
-            if p1.packet_number == 22:
-                print("p")
             flags = bin(int(p1.tcp_flag, 16))
             #potrebujem iba 12 bitov od konca na flagy
             flags = flags[6:]
@@ -337,6 +335,8 @@ def task4_af(packets, protocol):
             if syn == 1 and handshake_steps != 3:
                 # znacim si iba kroky handshaku nastal prvy
                 handshake_steps = 1
+                temp.append(p1)
+                comm.remove(p1)
                 j = i
                 # hladam handshake
                 while j < len(comm):
@@ -359,12 +359,17 @@ def task4_af(packets, protocol):
                         # je to odpoved
                         if p2.ip_src == p1.ip_dest and p2.ip_dest == p1.ip_src and p2.dest_port == p1.source_port and p2.source_port == p1.dest_port:
                             handshake_steps = 2
+                            temp.append(p2)
+                            comm.remove(p2)
+                            continue
                         # posledny krok handshaku odpovedam serveru tiez ack
                     elif ack_p2 == 1 and handshake_steps == 2:
                         if p2.ip_src == p1.ip_src and p2.ip_dest == p1.ip_dest and p2.dest_port == p1.dest_port and p2.source_port == p1.source_port:
                             handshake_steps = 3
-                            i = j+1 # nastavim i aby bolo za j kde som nasiel cyklus (inac by som sa cyklil donekonecna)
+                            i = 0
                             start_i_afterhs = j+1
+                            temp.append(p2)
+                            comm.remove(p2)
                             print("Maam handshake")
                             break
                     j += 1
@@ -372,13 +377,16 @@ def task4_af(packets, protocol):
                 if j >= len(comm) and handshake_steps != 3:
                     # vyskocim z vonkajsieho while a i < ako dlzka comm cize odignorujem iba komunikaciu
                     # alebo teda co z nej ostalo...
+                    temp = []
                     break
             # ked mam handshake
             elif handshake_steps == 3:
                 # vidim prvy fin flag tak sa vnorim a pozeram ci mi neskonci komunikacia
                 # print("Handshake steps == 3")
                 if fin == 1:
-                    j = i+1
+                    temp.append(p1)
+                    comm.remove(p1)
+                    j = i
                     print("Idem druhy cyklus")
                     # hladam koniec komunikacie
                     end_type = 0
@@ -397,75 +405,102 @@ def task4_af(packets, protocol):
                             fin_p2 = 1
                         # prvy typ
                         if ack == 1 and end_com_steps == 0:
+                            temp.append(p2)
+                            comm.remove(p2)
                             end_com_steps = 1
                             end_type = 1
+                            continue
                         # je to odpoved
                         if p2.ip_src == p1.ip_dest and p2.ip_dest == p1.ip_src and p2.dest_port == p1.source_port and p2.source_port == p1.dest_port:
                             # PRVY TYP
                             if ack_p2 == 1 and end_type == 1 and end_com_steps == 1:
+                                temp.append(p2)
+                                comm.remove(p2)
                                 end_com_steps = 2
+                                continue
+
                             elif fin_p2 == 1 and ack_p2 == 1 and end_com_steps == 2 and end_type == 1:
+                                temp.append(p2)
+                                comm.remove(p2)
                                 end_com_steps = 3
+                                continue
                             # DRUHY TYP
                             elif ack_p2 == 1 and end_com_steps == 0:
                                 end_com_steps = 1
                                 end_type = 2
+                                temp.append(p2)
+                                comm.remove(p2)
+                                continue
                             elif fin_p2 == 1 and end_type == 2 and end_com_steps == 1:
                                 end_com_steps = 2
-
+                                temp.append(p2)
+                                comm.remove(p2)
+                                continue
                             # PIATY
                             elif rst_p2 == 1 and end_type == 0:
                                 end_type = 5
+                                temp.append(p2)
+                                comm.remove(p2)
+                                continue
                             # piaty na konci nie je ack
                             elif end_type == 5:
-                                compl_comms.append(comm[0:j])  # nechcem tam tento paket p2 cize preto tam  nie je +1
-                                comm = comm[j:]
-                                i = 0
+                                temp.append(p2)
+                                comm.remove(p2)
+                                compl_comms.append(temp)
+                                handshake_steps = 0
+                                temp = []
                                 break
                         # je to klient
                         elif p2.ip_src == p1.ip_src and p2.ip_dest == p1.ip_dest and p2.dest_port == p1.dest_port and p2.source_port == p1.source_port:
                             #PRVY TYP
                             if ack_p2 == 1 and end_type == 1 and end_com_steps == 3:
-                                complete = True
-                                compl_comms.append(comm[0:j+1])
-                                comm = comm[j+1:]
-                                i = 0
+                                temp.append(p2)
+                                comm.remove(p2)
+                                compl_comms.append(temp)
+                                handshake_steps = 0
+                                temp = []
                                 break
                             # DRUHY TYP
                             elif ack_p2 == 1 and end_type == 2 and end_com_steps == 2:
                                 complete = True
-                                compl_comms.append(comm[0:j + 1])
-                                comm = comm[j + 1:]
-                                i = 0
+                                temp.append(p2)
+                                comm.remove(p2)
+                                compl_comms.append(temp)
+                                handshake_steps = 0
+                                temp = []
                                 break
                             # TRETI TYP
                             elif end_type == 0 and rst_p2 == 1:
-                                compl_comms.append(comm[0:j + 1])
-                                comm = comm[j + 1:]
-                                i = 0
+                                temp.append(p2)
+                                comm.remove(p2)
+                                compl_comms.append(temp)
+                                handshake_steps = 0
+                                temp = []
                                 break
                             # PIATY  ak je na konci este ack ktory tam nemusi ale byt
                             elif end_type == 5 and ack_p2 == 1:
-                                compl_comms.append(comm[0:j + 1])
-                                comm = comm[j + 1:]
-                                i = 0
+                                temp.append(p2)
+                                comm.remove(p2)
+                                compl_comms.append(temp)
+                                temp = []
+                                handshake_steps = 0
                                 break
                             # ak je to ale end type 5 ale nemam acknowledgement navyse tak koncim
                             elif end_type == 5:
-                                compl_comms.append(comm[0:j]) # nechcem tam tento paket p2 cize preto tam  nie je +1
-                                comm = comm[j:]
-                                i = 0
+                                temp.append(p2)
+                                comm.remove(p2)
+                                compl_comms.append(temp)
+                                temp = []
                                 break
                         j += 1
                     print("Skoncil som druhy cyklus")
                     # ak to je piaty typ skoncenia komunikacie ale na konci nebol ack, cize som docital
                     if end_type == 5 and j >= len(comm):
-                        compl_comms.append(comm[0:j])  # nechcem tam tento paket p2 cize preto tam  nie je +1
-                        comm = comm[j:]
-                        i = 0
+                        compl_comms.append(temp)
+                        temp = []
                     if j >= len(comm) and len(comm)!=0:
-                        incompl_coms.append(comm)
-                        comm = []
+                        incompl_coms.append(temp)
+                        temp = []
                         break
                 elif rst == 1: # rst este musim pozriet ci nemam ack z opacnej strany
                     if (i+1) < len(comm):
@@ -477,13 +512,20 @@ def task4_af(packets, protocol):
                         if (flags_p2 & 16) == 16:
                             ack_p2 = 1
                         if p2.ip_src == p1.ip_dest:
-                            compl_comms.append(comm[0: i + 2])
-                            comm = comm[i + 2:]
+                            temp.append(p2)
+                            comm.remove(p2)
+                            compl_comms.append(temp)
+                            temp = []
+                            handshake_steps = 0
                             i = 0
                     else:
-                        compl_comms.append(comm[0: i + 1])
-                        comm = comm[i + 1:]
+                        compl_comms.append(temp)
+                        temp = []
                         i = 0
+                elif syn != 1:
+                    temp.append(p1)
+                    comm.remove(p1)
+                    continue
             i += 1
         if i >= len(comm) and handshake_steps == 3:
             incompl_coms.append(comm)
