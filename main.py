@@ -282,144 +282,227 @@ def task4_af(packets, protocol):
     http_packets = filter_packets_by_tcpin_protocol(packets, protocol)
     compl_comms = []
     incompl_coms = []
+    comms = []
     i = 0
     comm = []
 
     while i < len(http_packets):
         packet = http_packets[i]
-        flags = bin(int(packet.tcp_flag, 16))
-        # potrebujem iba 12 bitov od konca na flagy
-        flags = flags[6:]
-        flags = int(flags,  2)
-        syn, ack = 0, 0
-        # hladam prvu zacatu komunikaciu
-        if (flags & 16) == 16:
-            ack = 1
-        if (flags & 2) == 2:
-            syn = 1
-        # mam prvy paket ktory zacina komunikaciu asi
-        if syn == 1:
-            # znacim si iba kroky handshaku nastal prvy
-            handshake_steps = 1
-            end_com_steps = 0
-            comm.append(packet)
-            end_com_initiator = -1 # 0 ak klient 1 ak server
-            # idem hladat k tomu reply syn ack
-            k = i+1
-            while k < len(http_packets):
-                p2 = http_packets[k]
-                flags_p2 = bin(int(p2.tcp_flag, 16))
-                flags_p2 = flags_p2[6:]
-                flags_p2 = int(flags_p2, 2)
-
-                # NASTAVENIE FLAGOV
-                syn_p2, ack_p2, rst_p2, fin_p2 = 0, 0, 0, 0
-                if (flags_p2 & 16) == 16:
-                    ack_p2 = 1
-                if (flags_p2 & 2) == 2:
-                    syn_p2 = 1
-                if (flags_p2 & 4) == 4:
-                    rst_p2 = 1
-                if (flags_p2 & 1) == 1:
-                    fin_p2 = 1
-                # KONTROLA DOKONCENIA HANDSHAKE
-                # mam paket co ma ack asyn ale musim pozriet ci to je odpoved na ten moj co zacina komunikaciu
-                if ack_p2 == 1 and syn_p2 == 1 and handshake_steps == 1:
-                    # je to odpoved
-                    if p2.ip_src == packet.ip_dest and p2.ip_dest == packet.ip_src and p2.dest_port == packet.source_port and p2.source_port == packet.dest_port:
-                        comm.append(p2)
-                        http_packets.remove(p2)
-                        handshake_steps = 2
-                        continue
-                    else:
-                        # preskakujem
-                        k += 1
-                # posledny krok handshaku odpovedam serveru tiez ack
-                elif ack_p2 == 1 and handshake_steps == 2:
-                    if p2.ip_src == packet.ip_src and p2.ip_dest == packet.ip_dest and p2.dest_port == packet.dest_port and p2.source_port == packet.source_port:
-                        comm.append(p2)
-                        http_packets.remove(p2)
-                        # hotovo nastal handshake
-                        handshake_steps = 3
-                        print("MAM HANDSHAKE")
-                        continue
-                    else:
-                        # preskakujem
-                        k += 1
-
-                # HANDSHAKE UZ MAME ZA SEBOU
-                # handshake uz je a teraz tam hadzem hocico pokial nepride koniec komunikacie alebo koniec paketov
-                elif handshake_steps == 3:
-                    # je to KLIENT
-                    if p2.ip_src == packet.ip_src and p2.ip_dest == packet.ip_dest and p2.dest_port == packet.dest_port and p2.source_port == packet.source_port:
-                        comm.append(p2)
-                        http_packets.remove(p2)
-                        # SERVER ZACAL KONIEC KOMUNIKACIE v predchadzajucom kroku
-                        # klient musi poslat ack a potom dalej fin
-                        if ack_p2 == 1 and end_com_steps == 1 and end_com_initiator == 1:
-                            end_com_steps = 2
-                        if fin_p2 == 1 and end_com_steps == 2 and end_com_initiator == 1:
-                            end_com_steps = 3
-                        #
-                        # 1 a 2 sposob skoncenia komunikacie, klient posle iba rst a ack serveru alebo iba rst
-                        if (rst_p2 == 1 and ack == 1) or rst_p2 == 1:
-                            compl_comms.append(comm)
-                            comm = []
-                            break
-                        if fin_p2 == 1 and end_com_steps == 0: # zacina sa koniec komunikacie
-                            end_com_steps = 1
-                            # nastavime ze koniec komunikacie inicializuje KLIENT
-                            end_com_initiator = 0
-                        if ack_p2 == 1 and end_com_steps == 3 and end_com_initiator == 0:
-                            compl_comms.append(comm)
-                            comm = []
-                            break
-                        continue
-                    # je to SERVER
-                    if p2.ip_src == packet.ip_dest and p2.ip_dest == packet.ip_src and p2.dest_port == packet.source_port and p2.source_port == packet.dest_port:
-                        comm.append(p2)
-                        http_packets.remove(p2)
-                        # SERVER ZACINA KONIEC KOMUNIKACIE
-                        if fin_p2 == 1 and end_com_steps == 0:
-                            end_com_steps = 1
-                            # nastavime ze koniec komunikacie inicializuje SERVER
-                            end_com_initiator = 1
-                        if ack_p2 == 1 and end_com_steps == 3 and end_com_initiator == 1:
-                            compl_comms.append(comm)
-                            comm = []
-                            break
-                        # SERVER ODPOVEDA NA KONIEC KOMUNIKACIE
-                        if rst_p2 == 1 and end_com_steps == 0:
-                            compl_comms.append(comm)
-                            comm = []
-                            break
-                        # server musi poslat ack a potom dalej fin
-                        if ack_p2 == 1 and end_com_steps == 1 and end_com_initiator == 0:
-                            end_com_steps = 2
-                        if fin_p2 == 1 and end_com_steps == 2 and end_com_initiator == 0:
-                            end_com_steps = 3
-                        continue
-                else:
-                     k += 1
-            # ked som presiel az na koniec paketov a nevyskocil som skor (komunikacia neskoncila)
-            # nieco budem mat v pole comm a teda je to nekompletna komunikacia
-            if len(comm) > 0:
-                incompl_coms.append(comm)
-                comm = []
+        comm.append(packet)
+        http_packets.remove(packet)
+        k = i
+        # dam si dokopy komunikacie podla ip adries
+        while k < len(http_packets):
+            p2 = http_packets[k]
+            #klient
+            if p2.ip_src == packet.ip_src and p2.ip_dest == packet.ip_dest and p2.dest_port == packet.dest_port and p2.source_port == packet.source_port:
+                comm.append(p2)
+                http_packets.remove(p2)
+                continue
+            # je to SERVER
+            if p2.ip_src == packet.ip_dest and p2.ip_dest == packet.ip_src and p2.dest_port == packet.source_port and p2.source_port == packet.dest_port:
+                comm.append(p2)
+                http_packets.remove(p2)
+                continue
+            k += 1
+        comms.append(comm)
         i += 1
+        comm = []
+    temp = []
+    for comm in comms:
+        i = 0
+        complete = False
+        handshake_steps = 0
+        start_i_afterhs = 0
+        while i < len(comm):
+            p1 = comm[i]
+            if p1.packet_number == 22:
+                print("p")
+            flags = bin(int(p1.tcp_flag, 16))
+            #potrebujem iba 12 bitov od konca na flagy
+            flags = flags[6:]
+            flags = int(flags,  2)
+            syn, ack, fin, rst = 0, 0, 0, 0
+            # hladam prvu zacatu komunikaciu
+            if (flags & 16) == 16:
+                ack = 1
+            if (flags & 2) == 2:
+                syn = 1
+            if (flags & 4) == 4:
+                rst = 1
+            if (flags & 1) == 1:
+                fin = 1
+            end_com_steps = 0
+            # mam prvy paket ktory zacina handshake
+            if syn == 1 and handshake_steps != 3:
+                # znacim si iba kroky handshaku nastal prvy
+                handshake_steps = 1
+                j = i
+                # hladam handshake
+                while j < len(comm):
+                    p2 = comm[j]
+                    flags_p2 = bin(int(p2.tcp_flag, 16))
+                    flags_p2 = flags_p2[6:]
+                    flags_p2 = int(flags_p2, 2)
+
+                    # NASTAVENIE FLAGOV
+                    syn_p2, ack_p2, rst_p2, fin_p2 = 0, 0, 0, 0
+                    if (flags_p2 & 16) == 16:
+                        ack_p2 = 1
+                    if (flags_p2 & 2) == 2:
+                        syn_p2 = 1
+                    #temp.append(p2)
+                    #comm.remove(p2)
+                        # KONTROLA DOKONCENIA HANDSHAKE
+                        # mam paket co ma ack asyn ale musim pozriet ci to je odpoved na ten moj co zacina komunikaciu
+                    if ack_p2 == 1 and syn_p2 == 1 and handshake_steps == 1:
+                        # je to odpoved
+                        if p2.ip_src == p1.ip_dest and p2.ip_dest == p1.ip_src and p2.dest_port == p1.source_port and p2.source_port == p1.dest_port:
+                            handshake_steps = 2
+                        # posledny krok handshaku odpovedam serveru tiez ack
+                    elif ack_p2 == 1 and handshake_steps == 2:
+                        if p2.ip_src == p1.ip_src and p2.ip_dest == p1.ip_dest and p2.dest_port == p1.dest_port and p2.source_port == p1.source_port:
+                            handshake_steps = 3
+                            i = j+1 # nastavim i aby bolo za j kde som nasiel cyklus (inac by som sa cyklil donekonecna)
+                            start_i_afterhs = j+1
+                            print("Maam handshake")
+                            break
+                    j += 1
+                    # neni tam handshake celu tu komunikaciu odignorujem
+                if j >= len(comm) and handshake_steps != 3:
+                    # vyskocim z vonkajsieho while a i < ako dlzka comm cize odignorujem iba komunikaciu
+                    # alebo teda co z nej ostalo...
+                    break
+            # ked mam handshake
+            elif handshake_steps == 3:
+                # vidim prvy fin flag tak sa vnorim a pozeram ci mi neskonci komunikacia
+                # print("Handshake steps == 3")
+                if fin == 1:
+                    j = i+1
+                    print("Idem druhy cyklus")
+                    # hladam koniec komunikacie
+                    end_type = 0
+                    while j < len(comm):
+                        p2 = comm[j]
+                        flags_p2 = bin(int(p2.tcp_flag, 16))
+                        flags_p2 = flags_p2[6:]
+                        flags_p2 = int(flags_p2, 2)
+                        # NASTAVENIE FLAGOV
+                        ack_p2, rst_p2, fin_p2 = 0, 0, 0
+                        if (flags_p2 & 16) == 16:
+                            ack_p2 = 1
+                        if (flags_p2 & 4) == 4:
+                            rst_p2 = 1
+                        if (flags_p2 & 1) == 1:
+                            fin_p2 = 1
+                        # prvy typ
+                        if ack == 1 and end_com_steps == 0:
+                            end_com_steps = 1
+                            end_type = 1
+                        # je to odpoved
+                        if p2.ip_src == p1.ip_dest and p2.ip_dest == p1.ip_src and p2.dest_port == p1.source_port and p2.source_port == p1.dest_port:
+                            # PRVY TYP
+                            if ack_p2 == 1 and end_type == 1 and end_com_steps == 1:
+                                end_com_steps = 2
+                            elif fin_p2 == 1 and ack_p2 == 1 and end_com_steps == 2 and end_type == 1:
+                                end_com_steps = 3
+                            # DRUHY TYP
+                            elif ack_p2 == 1 and end_com_steps == 0:
+                                end_com_steps = 1
+                                end_type = 2
+                            elif fin_p2 == 1 and end_type == 2 and end_com_steps == 1:
+                                end_com_steps = 2
+
+                            # PIATY
+                            elif rst_p2 == 1 and end_type == 0:
+                                end_type = 5
+                            # piaty na konci nie je ack
+                            elif end_type == 5:
+                                compl_comms.append(comm[0:j])  # nechcem tam tento paket p2 cize preto tam  nie je +1
+                                comm = comm[j:]
+                                i = 0
+                                break
+                        # je to klient
+                        elif p2.ip_src == p1.ip_src and p2.ip_dest == p1.ip_dest and p2.dest_port == p1.dest_port and p2.source_port == p1.source_port:
+                            #PRVY TYP
+                            if ack_p2 == 1 and end_type == 1 and end_com_steps == 3:
+                                complete = True
+                                compl_comms.append(comm[0:j+1])
+                                comm = comm[j+1:]
+                                i = 0
+                                break
+                            # DRUHY TYP
+                            elif ack_p2 == 1 and end_type == 2 and end_com_steps == 2:
+                                complete = True
+                                compl_comms.append(comm[0:j + 1])
+                                comm = comm[j + 1:]
+                                i = 0
+                                break
+                            # TRETI TYP
+                            elif end_type == 0 and rst_p2 == 1:
+                                compl_comms.append(comm[0:j + 1])
+                                comm = comm[j + 1:]
+                                i = 0
+                                break
+                            # PIATY  ak je na konci este ack ktory tam nemusi ale byt
+                            elif end_type == 5 and ack_p2 == 1:
+                                compl_comms.append(comm[0:j + 1])
+                                comm = comm[j + 1:]
+                                i = 0
+                                break
+                            # ak je to ale end type 5 ale nemam acknowledgement navyse tak koncim
+                            elif end_type == 5:
+                                compl_comms.append(comm[0:j]) # nechcem tam tento paket p2 cize preto tam  nie je +1
+                                comm = comm[j:]
+                                i = 0
+                                break
+                        j += 1
+                    print("Skoncil som druhy cyklus")
+                    # ak to je piaty typ skoncenia komunikacie ale na konci nebol ack, cize som docital
+                    if end_type == 5 and j >= len(comm):
+                        compl_comms.append(comm[0:j])  # nechcem tam tento paket p2 cize preto tam  nie je +1
+                        comm = comm[j:]
+                        i = 0
+                    if j >= len(comm) and len(comm)!=0:
+                        incompl_coms.append(comm)
+                        comm = []
+                        break
+                elif rst == 1: # rst este musim pozriet ci nemam ack z opacnej strany
+                    if (i+1) < len(comm):
+                        p2 = comm[i+1]
+                        flags_p2 = bin(int(p2.tcp_flag, 16))
+                        flags_p2 = flags_p2[6:]
+                        flags_p2 = int(flags_p2, 2)
+                        ack_p2 = 0
+                        if (flags_p2 & 16) == 16:
+                            ack_p2 = 1
+                        if p2.ip_src == p1.ip_dest:
+                            compl_comms.append(comm[0: i + 2])
+                            comm = comm[i + 2:]
+                            i = 0
+                    else:
+                        compl_comms.append(comm[0: i + 1])
+                        comm = comm[i + 1:]
+                        i = 0
+            i += 1
+        if i >= len(comm) and handshake_steps == 3:
+            incompl_coms.append(comm)
+
     counter = 1
     for comm in compl_comms:
         print("Kompletná komunikácia číslo "+str(counter))
         for packet in comm:
             packet.print_info()
+        counter +=1
+        #break # lebo vraj iba jednu komunikaciu
+    counter = 1
     for comm in incompl_coms:
-        print("Nekompletná komunikácia číslo " + str(counter))
+        if len(comm) > 0:
+            print("Nekompletná komunikácia číslo " + str(counter))
         for packet in comm:
             packet.print_info()
-
-
-
-
+        counter += 1
+        #break
 
 
 def find_one_tftp_communication(comslist,ip_src, ip_dest, port_src, port_dst, index, packets):
