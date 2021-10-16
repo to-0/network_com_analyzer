@@ -6,6 +6,7 @@ import sys
 
 import scapy.utils
 import os
+from constants import *
 
 protocols_dictionary = {}
 icmp_messages = {}
@@ -24,9 +25,9 @@ class DefPacket:
         eth_type_hex = int(data[12:14].hex(), 16)  # zoberiem si nasledujuce 2B po mac adresach
         self.analyze_ethernet(eth_type_hex)
 
-        if self.network_l_protocol == "IPv4":
+        if self.network_l_protocol == IPV4:
             h_start = 0
-            if self.ethernet_type == "Ethernet II":
+            if self.ethernet_type ==  ETHERNET2:
                 h_start = 14
             else:
                 h_start = 17
@@ -45,7 +46,7 @@ class DefPacket:
             else:
                 self.transport_layer_protocol = " ".join(ip_in_protocol)
             start = h_start + header_length
-            if self.transport_layer_protocol == "TCP" or self.transport_layer_protocol == "UDP":  # chcem iba porty a protokol tie maju na
+            if self.transport_layer_protocol == TCP or self.transport_layer_protocol == UDP:  # chcem iba porty a protokol tie maju na
                 # rovnakych miestach
                 self.source_port = self.data[start:start + 2].hex()  # 2bajty chcem precitat
                 self.dest_port = self.data[start + 2:start + 4].hex()
@@ -60,10 +61,10 @@ class DefPacket:
                 else:
                     self.transport_layer_protocol_in = "None"
 
-                if self.transport_layer_protocol == "TCP":
+                if self.transport_layer_protocol == TCP:
                     self.tcp_flag = self.data[start + 12:start + 14].hex()
-                if self.transport_layer_protocol == "UDP":
-                    if self.transport_layer_protocol_in == "TFTP":  # nasiel som prve tftp
+                if self.transport_layer_protocol == UDP:
+                    if self.transport_layer_protocol_in == TFTP:  # nasiel som prve tftp
                         tftp_coms[self.source_port] = [int(self.ip_dest, 16), int(self.ip_src, 16)]
 
                     elif self.transport_layer_protocol_in == "None":
@@ -72,23 +73,23 @@ class DefPacket:
                         # cize toto by bola odpoved takze prehodim ip adresy
                         if ip_arr is not None:
                             if ip_arr[0] == int(self.ip_src, 16) and ip_arr[1] == int(self.ip_dest, 16):
-                                self.transport_layer_protocol_in = "TFTP"
+                                self.transport_layer_protocol_in = TFTP
                             elif ip_arr[0] == int(self.ip_dest, 16) and ip_arr[1] == int(self.ip_src, 16):
-                                self.transport_layer_protocol_in = "TFTP"
+                                self.transport_layer_protocol_in = TFTP
                         ip_arr = tftp_coms.get(self.dest_port)
                         if ip_arr is not None:
                             if ip_arr[0] == int(self.ip_src, 16) and ip_arr[1] == int(self.ip_dest, 16):
-                                self.transport_layer_protocol_in = "TFTP"
+                                self.transport_layer_protocol_in = TFTP
                             elif ip_arr[0] == int(self.ip_dest, 16) and ip_arr[1] == int(self.ip_src, 16):
-                                self.transport_layer_protocol_in = "TFTP"
+                                self.transport_layer_protocol_in = TFTP
 
-            elif self.transport_layer_protocol == "ICMP":
+            elif self.transport_layer_protocol == ICMP:
                 type_m = self.data[start:start + 1].hex()
                 code = self.data[start + 1:start + 2].hex()
                 self.icmp_message = icmp_messages.get(str(type_m) + "/" + str(code))
 
-        elif self.network_l_protocol == "ARP":
-            if self.ethernet_type == "Ethernet II":
+        elif self.network_l_protocol == ARP:
+            if self.ethernet_type == ETHERNET2:
                 h_start = 14
             else:
                 h_start = 17
@@ -107,19 +108,19 @@ class DefPacket:
 
     def analyze_ethernet(self, eth_type_hex):
         if eth_type_hex >= int('0x0800', 16):  # ak je to rovne 0800 tak je to cisty ETHERNET II
-            self.ethernet_type = "Ethernet II"
+            self.ethernet_type = ETHERNET2
             self.analyze_network_layer_protocol(self.data[12:14].hex())
         else:  # je to 802.3 ale este musim zistit typ cez dalsie 2 bajty
             nb = int(self.data[14:16].hex(), 16)
             if nb == int('0xaaaa', 16):
-                self.ethernet_type = "Ethernet 802.3 LLC + SNAP"
+                self.ethernet_type = ETHLLC_SNAP
                 # podla dsap sa da zistit protokol v LLC AJ SNAP myslim ale este si to overim
                 self.analyze_network_layer_protocol(self.data[16:17].hex())
             elif nb == int('0xffff', 16):
-                self.ethernet_type = "802.3 RAW"
-                self.network_l_protocol = "IPX"  # ked je to raw iny protokol tam nemoze byt
+                self.ethernet_type = RAW
+                self.network_l_protocol = IPX  # ked je to raw iny protokol tam nemoze byt
             else:
-                self.ethernet_type = "IEEE 802.3 LLC"
+                self.ethernet_type = ETHLLC
                 # podla dsap sa da zistit protokol v LLC AJ SNAP
                 self.analyze_network_layer_protocol(self.data[16:17].hex())
 
@@ -217,15 +218,17 @@ def main():
     if int(task) == 1:
         task_1(packets)
     if int(task) == 2:
-        task4_af(packets, "HTTP")
+        task4_af(packets, HTTP)
+    if int(task) == 3:
+        task4_af(packets, HTTPS)
     if int(task) == 4:
-        task4_af(packets, "HTTPS")
+        task4_af(packets, TELNET)
     if int(task) == 5:
-        task4_af(packets, "SSH")
+        task4_af(packets, SSH)
     if int(task) == 6:
-        task4_af(packets, "FTP-CONTROL")
+        task4_af(packets, FTP_CONTROL)
     if int(task) == 7:
-        task4_af(packets, "FTP-DATA")
+        task4_af(packets, FTP_DATA)
     if int(task) == 8:
         task4g(packets)
     if int(task) == 9:
@@ -243,7 +246,7 @@ def task_3_1(packet_list):
     max_value = 0
     max_key = 0
     for packet in packet_list:  # prejdem vsetky packety, pozriem ktore su ethernet 2 a IPv4
-        if packet.ethernet_type == "Ethernet II" and packet.network_l_protocol == "IPv4":
+        if packet.ethernet_type == ETHERNET2 and packet.network_l_protocol == IPV4:
             # zoberiem si ip adresu zdrojovu a cez dictionary si ukladam pocet vyskytov tejto ip adresy
             ip_adress = packet.ip_src
             if ip_dictionary.get(ip_adress) is not None:
@@ -262,8 +265,8 @@ def task_3_1(packet_list):
 def filter_packets_by_tcpin_protocol(packets, protocol):
     filtered_list = []
     for packet in packets:
-        if packet.ethernet_type == "Ethernet II" and packet.network_l_protocol == "IPv4" \
-                and packet.transport_layer_protocol == "TCP" and packet.transport_layer_protocol_in == protocol:
+        if packet.ethernet_type == ETHERNET2 and packet.network_l_protocol == IPV4 \
+                and packet.transport_layer_protocol == TCP and packet.transport_layer_protocol_in == protocol:
             filtered_list.append(packet)
     return filtered_list
 
@@ -756,7 +759,7 @@ def task4g(packets):
     counter = 0
     # list vsetkych komunikacii
     comms = []
-    tftps = http_packets = filter_packets_by_tcpin_protocol(packets, "TFTP")
+    tftps = http_packets = filter_packets_by_tcpin_protocol(packets, TFTP)
     # pozbieram si vsetky tftp pakety
     i = 0
     # list komunikacie
@@ -832,7 +835,7 @@ def find_arp_pair(target_ip, packets, found_ip_adress_index, index, destination_
     length = len(packets)
     for i in range(index, length, 1):
         packet = packets[i]
-        if packet.network_l_protocol == "ARP" and packet.arp_operation == "Request" and packet.ip_dest == target_ip and packet.ip_src == destination_ip:
+        if packet.network_l_protocol == ARP and packet.arp_operation == "Request" and packet.ip_dest == target_ip and packet.ip_src == destination_ip:
             # ak je to request, skontrolujem  ci je jeho packet number vacsi alebo rovny ako posledny packet
             # pre tuto komunikaciu, aby nenastala situacia ze mam request, request reply, potom znova requesty ale
             # a ja by som matchola j requesty na ktore uz prisla reply
@@ -840,7 +843,7 @@ def find_arp_pair(target_ip, packets, found_ip_adress_index, index, destination_
             if packet.packet_number >= found_ip_adress_index:
                 # Tie pakety pred tymto requestom neberiem do uvahy
                 packet_list.append(packet)
-        if packet.network_l_protocol == "ARP" and packet.arp_operation == "Reply" and packet.ip_src == target_ip and packet.ip_dest == destination_ip:
+        if packet.network_l_protocol == ARP and packet.arp_operation == "Reply" and packet.ip_src == target_ip and packet.ip_dest == destination_ip:
             # ak je to reply, musim sa pozriet ci je ta reply vacsia ako cislo posledneho paketu komunikacie
             # ak by som to nekontroloval mohol by som skoncit skor napr request reply request request tak pri
             # komunikacii 2 (request, request) by som skoncil hned reply ale ta bola poslana pred requestami
@@ -862,7 +865,7 @@ def task4_i(packets):
         packet = packets[i]
         if packet.packet_number == 232:
             print("hey")
-        if packet.network_l_protocol == "ARP" and packet.arp_operation == "Request":
+        if packet.network_l_protocol == ARP and packet.arp_operation == "Request":
             # found znaci, cislo posledneho paketu predoslej arp komunikacie na rovnaku ip adresu (konci bud reply,
             # alebo ked uz proste najdem vsetky request a ziadna reply)
             found = found_ip_adresses.get((packet.ip_dest, packet.ip_src))
@@ -928,7 +931,7 @@ def task4_i(packets):
     j = 0
     unmatched_replies = []
     for packet in packets:
-        if packet.network_l_protocol == "ARP" and packet.arp_operation == "Reply":
+        if packet.network_l_protocol == ARP and packet.arp_operation == "Reply":
             found = found_ip_adresses.get((packet.ip_src, packet.ip_dest))  # kedze je to naopak
             if found is None or found < packet.packet_number:
                 unmatched_replies.append(packet)
