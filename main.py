@@ -219,15 +219,19 @@ def main():
     if int(task) == 2:
         task4_af(packets, "HTTP")
     if int(task) == 4:
-        task4_af2(packets, "HTTPS")
+        task4_af(packets, "HTTPS")
+    if int(task) == 5:
+        task4_af(packets, "SSH")
+    if int(task) == 6:
+        task4_af(packets, "FTP-CONTROL")
+    if int(task) == 7:
+        task4_af(packets, "FTP-DATA")
     if int(task) == 8:
         task4g(packets)
     if int(task) == 9:
         task4h(packets)
     if int(task) == 10:
         task4_i(packets)
-    if int(task) == 17:
-        test(packets)
     if out == "a":
         sys.stdout.close()
 
@@ -353,6 +357,9 @@ def check_closing_handshake(p1, p2, p3, p4):
     if fins[2] == 1 and rsts[3] == 1:
         if p3.ip_src == p4.ip_dest:
             return True
+    if fins[0] ==1 and acks[0]==1 and fins[1]==1 and acks[1]==1 and acks[2]==1 and acks[3]==1:
+        if p1.ip_src == p2.ip_dest and p1.ip_src == p3.ip_src and p2.ip_src == p4.ip_src:
+            return True
     return False
 
 
@@ -387,17 +394,17 @@ def task4_af2(packets, protocol):
         # i += 1
         comm = []
     for comm in comms:
-        if len(comm) > 3:
+        if len(comm) >= 3:
             p1 = comm[0]
-            if p1.packet_number == 26:
+            if p1.packet_number == 286:
                 print("EW")
             p2 = comm[1]
             p3 = comm[2]
             if not check_packets_handshake_open(p1, p2, p3):
                 continue
-        if len(comm) < 4:
-            incompl_coms.append(comm)
-            continue
+            if len(comm) == 3 and check_packets_handshake_open(p1, p2, p3):
+                incompl_coms.append(comm)
+                continue
         p4 = comm[-1]
         p3 = comm[-2]
         p2 = comm[-3]
@@ -458,6 +465,7 @@ def task4_af(packets, protocol):
         handshake_steps = 0
         while i < len(comm):
             p1 = comm[i]
+            #print(p1.packet_number)
             flags = bin(int(p1.tcp_flag, 16))
             #potrebujem iba 12 bitov od konca na flagy
             flags = flags[6:]
@@ -533,6 +541,8 @@ def task4_af(packets, protocol):
                     end_type = 0
                     while j < len(comm):
                         p2 = comm[j]
+                        if p2.packet_number == 182:
+                            print("ew")
                         flags_p2 = bin(int(p2.tcp_flag, 16))
                         flags_p2 = flags_p2[6:]
                         flags_p2 = int(flags_p2, 2)
@@ -548,7 +558,6 @@ def task4_af(packets, protocol):
                         if ack == 1 and end_com_steps == 0:
                             end_com_steps = 1
                             end_type = 1
-                            continue
                         # je to odpoved
                         if p2.ip_src == p1.ip_dest and p2.ip_dest == p1.ip_src and p2.dest_port == p1.source_port and p2.source_port == p1.dest_port:
                             # PRVY TYP
@@ -559,8 +568,6 @@ def task4_af(packets, protocol):
                                 comm.remove(p2)
                                 end_com_steps = 2
                                 continue
-
-
                             elif fin_p2 == 1 and ack_p2 == 1 and end_com_steps == 2 and end_type == 1:
                                 temp.append(p2)
                                 comm.remove(p2)
@@ -591,6 +598,14 @@ def task4_af(packets, protocol):
                                 compl_comms.append(temp)
                                 handshake_steps = 0
                                 i=0
+                                temp = []
+                                break
+                            elif ack_p2 == 1 and end_type == 6 and end_com_steps == 3:
+                                temp.append(p2)
+                                comm.remove(p2)
+                                compl_comms.append(temp)
+                                handshake_steps = 0
+                                i = 0
                                 temp = []
                                 break
                         # je to klient
@@ -639,12 +654,15 @@ def task4_af(packets, protocol):
                                 compl_comms.append(temp)
                                 temp = []
                                 break
-                            elif ack==1 and end_type==6 and end_com_steps == 2:
+                            elif ack_p2==1 and end_type==6 and end_com_steps == 2:
                                 temp.append(p2)
                                 comm.remove(p2)
-                                compl_comms.append(temp)
-                                temp = []
-                                break
+
+                                end_com_steps = 3
+                                continue
+                                #compl_comms.append(temp)
+                                #temp = []
+                                #break
                         j += 1
                     #print("Skoncil som druhy cyklus")
                     # ak to je piaty typ skoncenia komunikacie ale na konci nebol ack, cize som docital
@@ -652,10 +670,15 @@ def task4_af(packets, protocol):
                         compl_comms.append(temp)
                         temp = []
                     if j >= len(comm) and len(temp)!=0:
-                        incompl_coms.append(temp)
+                        if end_type == 6 and end_com_steps == 3:
+                            compl_comms.append(temp)
+                        else:
+                            incompl_coms.append(temp)
                         temp = []
                         break
                 elif rst == 1: # rst este musim pozriet ci nemam ack z opacnej strany
+                    temp.append(p1)
+                    comm.remove(p1)
                     if (i+1) < len(comm):
                         p2 = comm[i+1]
                         flags_p2 = bin(int(p2.tcp_flag, 16))
@@ -976,12 +999,5 @@ def load_icmp_messages():
             icmp_messages[arr[0]] = arr[1:]
 
 
-def test(packets):
-    for i in range(390, len(packets)):
-        packet = packets[i]
-        packet.print_info()
-
-
 if __name__ == '__main__':
-    # analyze("")
     main()
