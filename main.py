@@ -468,6 +468,8 @@ def task4_af(packets, protocol):
         handshake_steps = 0
         while i < len(comm):
             p1 = comm[i]
+            if p1.packet_number == 20:
+                print("ew")
             #print(p1.packet_number)
             flags = bin(int(p1.tcp_flag, 16))
             #potrebujem iba 12 bitov od konca na flagy
@@ -536,28 +538,47 @@ def task4_af(packets, protocol):
                     break
             # ked mam handshake
             elif handshake_steps == 3:
+                # iba tak random tam ide novy handshake?
+                if p1.packet_number == 20:
+                    print("ew")
+                if syn == 1:
+                    incompl_coms.append(temp)
+                    temp = []
+                    handshake_steps = 0
+                    continue
                 # vidim prvy fin flag tak sa vnorim a pozeram ci mi neskonci komunikacia
                 # print("Handshake steps == 3")
                 if fin == 1:
+                    found_fin = 0
                     temp.append(p1)
                     comm.remove(p1)
                     j = i
                     #print("Idem druhy cyklus")
                     # hladam koniec komunikacie
                     end_type = 0
+
                     while j < len(comm):
                         p2 = comm[j]
                         flags_p2 = bin(int(p2.tcp_flag, 16))
                         flags_p2 = flags_p2[6:]
                         flags_p2 = int(flags_p2, 2)
                         # NASTAVENIE FLAGOV
-                        ack_p2, rst_p2, fin_p2 = 0, 0, 0
+                        ack_p2, rst_p2, fin_p2,syn2 = 0, 0, 0,0
                         if (flags_p2 & 16) == 16:
                             ack_p2 = 1
                         if (flags_p2 & 4) == 4:
                             rst_p2 = 1
                         if (flags_p2 & 1) == 1:
                             fin_p2 = 1
+                        if (flags_p2 & 2) == 2:
+                            syn2 = 1
+                        if syn2 == 1:
+                            incompl_coms.append(temp)
+                            temp = []
+                            handshake_steps = 0
+                            i = -1
+                            break
+
                         # kompletna
                         if rst_p2 == 1:
                             temp.append(p2)
@@ -566,12 +587,13 @@ def task4_af(packets, protocol):
                                 flags_p = bin(int(comm[j+1].tcp_flag, 16))
                                 flags_p = flags_p[6:]
                                 flags_p = int(flags_p, 2)
-                                if (flags_p & 16) == 16:
+                                if (flags_p & 16) == 16 and (flags_p & 2) != 2:
                                     temp.remove(comm[j+1])
                                     comm.remove(comm[j+1])
                             compl_comms.append(temp)
                             temp = []
                             i = -1
+                            found_fin = 1
                             break
                         # prvy typ
                         if ack == 1 and end_com_steps == 0:
@@ -579,7 +601,7 @@ def task4_af(packets, protocol):
                             end_type = 1
                         # je to odpoved
                         if p2.ip_src == p1.ip_dest and p2.ip_dest == p1.ip_src and p2.dest_port == p1.source_port and p2.source_port == p1.dest_port:
-                            # PRVY TYP
+                            # PRVY TYP FIN,ACK> ACK< FIN,ACK< ACK>
                             if ack_p2 == 1 and end_type == 1 and end_com_steps == 1:
                                 if fin_p2 == 1:
                                     end_type = 6
@@ -592,7 +614,7 @@ def task4_af(packets, protocol):
                                 comm.remove(p2)
                                 end_com_steps = 3
                                 continue
-                            # DRUHY TYP
+                            # DRUHY TYP FIN> ACK< FIN< ACK>
                             elif ack_p2 == 1 and end_com_steps == 0:
                                 end_com_steps = 1
                                 end_type = 2
@@ -604,29 +626,6 @@ def task4_af(packets, protocol):
                                 temp.append(p2)
                                 comm.remove(p2)
                                 continue
-                            # PIATY toto asi netreba
-                            # elif rst_p2 == 1 and end_type == 0:
-                            #     end_type = 5
-                            #     temp.append(p2)
-                            #     comm.remove(p2)
-                            #     continue
-                            # # piaty na konci nie je ack
-                            # elif end_type == 5:
-                            #     temp.append(p2)
-                            #     comm.remove(p2)
-                            #     compl_comms.append(temp)
-                            #     handshake_steps = 0
-                            #     i=0
-                            #     temp = []
-                            #     break
-                            # elif ack_p2 == 1 and end_type == 6 and end_com_steps == 3:
-                            #     temp.append(p2)
-                            #     comm.remove(p2)
-                            #     compl_comms.append(temp)
-                            #     handshake_steps = 0
-                            #     i = 0
-                            #     temp = []
-                            #     break
                         # je to klient
                         elif p2.ip_src == p1.ip_src and p2.ip_dest == p1.ip_dest and p2.dest_port == p1.dest_port and p2.source_port == p1.source_port:
                             #PRVY TYP
@@ -637,6 +636,7 @@ def task4_af(packets, protocol):
                                 handshake_steps = 0
                                 temp = []
                                 i = 0
+                                found_fin = 1
                                 break
                             # DRUHY TYP
                             elif ack_p2 == 1 and end_type == 2 and end_com_steps == 2:
@@ -647,32 +647,9 @@ def task4_af(packets, protocol):
                                 handshake_steps = 0
                                 temp = []
                                 i = 0
+                                found_fin = 1
                                 break
-                            # TRETI TYP
-                            elif end_type == 0 and rst_p2 == 1:
-                                temp.append(p2)
-                                comm.remove(p2)
-                                compl_comms.append(temp)
-                                handshake_steps = 0
-                                temp = []
-                                i = 0
-                                break
-                            # # PIATY  ak je na konci este ack ktory tam nemusi ale byt
-                            # elif end_type == 5 and ack_p2 == 1:
-                            #     temp.append(p2)
-                            #     comm.remove(p2)
-                            #     compl_comms.append(temp)
-                            #     temp = []
-                            #     handshake_steps = 0
-                            #     i = 0
-                            #     break
-                            # # ak je to ale end type 5 ale nemam acknowledgement navyse tak koncim
-                            # elif end_type == 5:
-                            #     temp.append(p2)
-                            #     comm.remove(p2)
-                            #     compl_comms.append(temp)
-                            #     temp = []
-                            #     break
+                            # 6 typ alebo ked chcu dvaja naraz ukoncit komunikaciu
                             elif ack_p2==1 and end_type==6 and end_com_steps == 2:
                                 temp.append(p2)
                                 comm.remove(p2)
@@ -691,21 +668,18 @@ def task4_af(packets, protocol):
                                 handshake_steps = 0
                                 temp = []
                                 i = -1
+                                found_fin = 1
                                 break
                                 #compl_comms.append(temp)
                                 #temp = []
                                 #break
-                        j += 1
-                    #print("Skoncil som druhy cyklus")
-                    # ak to je piaty typ skoncenia komunikacie ale na konci nebol ack, cize som docital
-                    if end_type == 5 and j >= len(comm):
-                        compl_comms.append(temp)
-                        temp = []
-
-                    if j >= len(comm) and len(temp)!=0:
-                        # if end_type == 6 and end_com_steps == 3:
-                        #     compl_comms.append(temp)
-                        # else:
+                        # ked mi tam ale hocico vleti este random medzi tie pakety co sa podielaju na ukonceni komunikacie
+                        # a neni to nejaky syn co by zacinal novy handshake tak to tam stale pridavam
+                        temp.append(p2)
+                        comm.remove(p2)
+                        #j += 1
+                    # ked nejakym zazrakom vyskocim skor
+                    if found_fin == 0 and len(temp)!=0:
                         incompl_coms.append(temp)
                         temp = []
                         break
@@ -741,6 +715,8 @@ def task4_af(packets, protocol):
 
 
     counter = 1
+    print("Počet kompletných komunikácií "+str(len(compl_comms)))
+    print("Počet nekompletných komunikácií " + str(len(incompl_coms)))
     for comm in compl_comms:
         print("Kompletná komunikácia číslo "+str(counter))
         for packet in comm:
@@ -852,7 +828,7 @@ def task4h(packets):  # ICMP
                 icmps.remove(p2)
                 continue
             elif p1.ip_src == p2.ip_dest and p1.ip_dest == p2.ip_src:
-                com.append(p1)
+                com.append(p2)
                 icmps.remove(p2)
                 continue
             j += 1
@@ -861,9 +837,16 @@ def task4h(packets):  # ICMP
         i += 1
     print(len(coms))
     counter = 1
+
     for comm in coms:
         print("Komunikacia cislo "+str(counter))
+        j = 0
         for p in comm:
+            j += 1
+            if len(comm) > 20 and (10 < j < (len(comm) - 10)):
+                if j == 11:
+                    print("...")
+                continue
             p.print_info()
         counter +=1
 
@@ -901,8 +884,6 @@ def task4_i(packets):
     i = 0
     while i < len(packets):
         packet = packets[i]
-        if packet.packet_number == 232:
-            print("hey")
         if packet.network_l_protocol == ARP and packet.arp_operation == "Request":
             # found znaci, cislo posledneho paketu predoslej arp komunikacie na rovnaku ip adresu (konci bud reply,
             # alebo ked uz proste najdem vsetky request a ziadna reply)
