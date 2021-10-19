@@ -27,7 +27,7 @@ class DefPacket:
 
         if self.network_l_protocol == IPV4:
             h_start = 0
-            if self.ethernet_type ==  ETHERNET2:
+            if self.ethernet_type == ETHERNET2:
                 h_start = 14
             else:
                 h_start = 17
@@ -115,14 +115,16 @@ class DefPacket:
             if nb == int('0xaaaa', 16):
                 self.ethernet_type = ETHLLC_SNAP
                 # podla dsap sa da zistit protokol v LLC AJ SNAP myslim ale este si to overim
-                self.analyze_network_layer_protocol(self.data[16:17].hex())
+                #self.analyze_network_layer_protocol(self.data[16:17].hex())
+                # podla ethertype zistim vnoreny protokol
+                self.analyze_network_layer_protocol(self.data[21:23].hex())
             elif nb == int('0xffff', 16):
                 self.ethernet_type = RAW
                 self.network_l_protocol = IPX  # ked je to raw iny protokol tam nemoze byt
             else:
                 self.ethernet_type = ETHLLC
                 # podla dsap sa da zistit protokol v LLC AJ SNAP
-                self.analyze_network_layer_protocol(self.data[16:17].hex())
+                self.analyze_network_layer_protocol(self.data[14:15].hex())
 
     def analyze_network_layer_protocol(self, value):
         in_protocol = protocols_dictionary.get("0x" + value)
@@ -271,167 +273,6 @@ def filter_packets_by_tcpin_protocol(packets, protocol):
     return filtered_list
 
 
-def check_packets_handshake_open(p1, p2, p3):
-    flags = bin(int(p1.tcp_flag, 16))
-    # potrebujem iba 12 bitov od konca na flagy
-    flags = flags[6:]
-    flags = int(flags, 2)
-    syn, ack, fin, rst = 0, 0, 0, 0
-    # hladam prvu zacatu komunikaci
-    if (flags & 2) == 2:
-        syn = 1
-    flags = bin(int(p2.tcp_flag, 16))
-    # potrebujem iba 12 bitov od konca na flagy
-    flags = flags[6:]
-    flags = int(flags, 2)
-    syn2, ack2 = 0, 0
-    # hladam prvu zacatu komunikaciu
-    if (flags & 2) == 2:
-        syn2 = 1
-    if (flags & 16) == 16:
-        ack2 = 1
-
-    flags = bin(int(p3.tcp_flag, 16))
-    # potrebujem iba 12 bitov od konca na flagy
-    flags = flags[6:]
-    flags = int(flags, 2)
-    ack3 = 0
-    # hladam prvu zacatu komunikaciu
-    if (flags & 16) == 16:
-        ack3 = 1
-
-    if p2.ip_src == p1.ip_dest and p2.ip_dest == p1.ip_src and p3.ip_src == p1.ip_src:
-        if syn == 1 and syn2 == 1 and ack2 == 1 and ack3 == 1:
-            return True
-    return False
-
-
-def check_closing_handshake(p1, p2, p3, p4):
-    i = 0
-    acks = [0, 0, 0, 0]
-    fins = [0, 0, 0, 0]
-    rsts = [0, 0, 0, 0]
-    while i < 4:
-        p = p1
-        if i == 0:
-            p = p1
-        if i == 1:
-            p = p2
-        if i == 2:
-            p = p3
-        if i == 4:
-            p = p4
-        flags = bin(int(p.tcp_flag, 16))
-        flags = flags[6:]
-        flags = int(flags, 2)
-        if (flags & 16) == 16:
-            acks[i] = 1
-        if (flags & 4) == 4:
-            rsts[i] = 1
-        if (flags & 1) == 1:
-            fins[i] = 1
-        i += 1
-    # RESET iba
-    if rsts[3] == 1:
-        return True
-    # RESET a ACK
-    if rsts[2] == 1 and acks[3] == 1:
-        if p3.ip_src == p4.ip_dest:
-            return True
-    # PRVY SPOSOB
-    if fins[0] == 1 and acks[0] == 0 and acks[1] == 1 and fins[2] == 1 and acks[2] == 1 and acks[3] == 1:
-        if p1.ip_src == p2.ip_dest and p2.ip_src == p3.ip_src and p4.ip_src == p1.ip_src:
-            return True
-    # DRUHY SPOSOB
-    if fins[0] == 1 and acks[1] == 1 and fins[2] == 1 and acks[3] == 1:
-        if p1.ip_src == p2.ip_dest and p2.ip_src == p3.ip_src and p4.ip_src == p1.ip_src:
-            return True
-    # TRETI SPOSOB
-    if fins[2] == 1 and rsts[3] == 1:
-        if p3.ip_src == p4.ip_dest:
-            return True
-    # PIATY sposOB
-    if fins[1] == 1 and rsts[2] == 1 and acks[3] == 1:
-        if p3.ip_src == p2.ip_dest and p3.ip_src == p4.ip_src:
-            return True
-    if fins[1]== 1 and acks[1]==1 and fins[2]==1 and acks[2]==1 and acks[3]==1:
-        if p2.ip_src == p3.ip_dest and p3.ip_src == p2.ip_src:
-            return True
-    if fins[2] == 1 and rsts[3] == 1:
-        if p3.ip_src == p4.ip_dest:
-            return True
-    if fins[0] ==1 and acks[0]==1 and fins[1]==1 and acks[1]==1 and acks[2]==1 and acks[3]==1:
-        if p1.ip_src == p2.ip_dest and p1.ip_src == p3.ip_src and p2.ip_src == p4.ip_src:
-            return True
-    return False
-
-
-# analyza http komunikacie
-def task4_af2(packets, protocol):
-    http_packets = filter_packets_by_tcpin_protocol(packets, protocol)
-    compl_comms = []
-    incompl_coms = []
-    comms = []
-    i = 0
-    comm = []
-    while i < len(http_packets):
-        packet = http_packets[i]
-        comm.append(packet)
-        http_packets.remove(packet)
-        k = i
-        # dam si dokopy komunikacie podla ip adries a portov
-        while k < len(http_packets):
-            p2 = http_packets[k]
-            # klient
-            if p2.ip_src == packet.ip_src and p2.ip_dest == packet.ip_dest and p2.dest_port == packet.dest_port and p2.source_port == packet.source_port:
-                comm.append(p2)
-                http_packets.remove(p2)
-                continue
-            # je to SERVER
-            if p2.ip_src == packet.ip_dest and p2.ip_dest == packet.ip_src and p2.dest_port == packet.source_port and p2.source_port == packet.dest_port:
-                comm.append(p2)
-                http_packets.remove(p2)
-                continue
-            k += 1
-        comms.append(comm)
-        # i += 1
-        comm = []
-    for comm in comms:
-        if len(comm) >= 3:
-            p1 = comm[0]
-            if p1.packet_number == 286:
-                print("EW")
-            p2 = comm[1]
-            p3 = comm[2]
-            if not check_packets_handshake_open(p1, p2, p3):
-                continue
-            if len(comm) == 3 and check_packets_handshake_open(p1, p2, p3):
-                incompl_coms.append(comm)
-                continue
-        p4 = comm[-1]
-        p3 = comm[-2]
-        p2 = comm[-3]
-        p1 = comm[-4]
-        if check_closing_handshake(p1, p2, p3, p4):
-            compl_comms.append(comm)
-        else:
-            incompl_coms.append(comm)
-    counter = 1
-    for comm in compl_comms:
-        print("Kompletná komunikácia číslo " + str(counter))
-        for packet in comm:
-            packet.print_info()
-        counter += 1
-        # break # lebo vraj iba jednu komunikaciu
-    counter = 1
-    for comm in incompl_coms:
-        if len(comm) > 0:
-            print("Nekompletná komunikácia číslo " + str(counter))
-        for packet in comm:
-            packet.print_info()
-        counter += 1
-
-
 def task4_af(packets, protocol):
     http_packets = filter_packets_by_tcpin_protocol(packets, protocol)
     compl_comms = []
@@ -468,8 +309,6 @@ def task4_af(packets, protocol):
         handshake_steps = 0
         while i < len(comm):
             p1 = comm[i]
-            if p1.packet_number == 20:
-                print("ew")
             #print(p1.packet_number)
             flags = bin(int(p1.tcp_flag, 16))
             #potrebujem iba 12 bitov od konca na flagy
@@ -486,7 +325,6 @@ def task4_af(packets, protocol):
             if (flags & 1) == 1:
                 fin = 1
             end_com_steps = 0
-            # mam prvy paket ktory zacina handshake
             if syn == 1 and handshake_steps != 3:
                 # znacim si iba kroky handshaku nastal prvy
                 handshake_steps = 1
@@ -524,9 +362,9 @@ def task4_af(packets, protocol):
                     elif ack_p2 == 1 and handshake_steps == 2:
                         if p2.ip_src == p1.ip_src and p2.ip_dest == p1.ip_dest and p2.dest_port == p1.dest_port and p2.source_port == p1.source_port:
                             handshake_steps = 3
-                            i=j-1
                             temp.append(p2)
                             comm.remove(p2)
+                            i = j - 1
                             #print("Maam handshake")
                             break
                     j += 1
@@ -539,8 +377,6 @@ def task4_af(packets, protocol):
             # ked mam handshake
             elif handshake_steps == 3:
                 # iba tak random tam ide novy handshake?
-                if p1.packet_number == 20:
-                    print("ew")
                 if syn == 1:
                     incompl_coms.append(temp)
                     temp = []
@@ -583,12 +419,12 @@ def task4_af(packets, protocol):
                         if rst_p2 == 1:
                             temp.append(p2)
                             comm.remove(p2)
-                            if len(comm) > 1 and j+1 < len(comm):
+                            if len(comm) > 1 and (j+1) < len(comm):
                                 flags_p = bin(int(comm[j+1].tcp_flag, 16))
                                 flags_p = flags_p[6:]
                                 flags_p = int(flags_p, 2)
                                 if (flags_p & 16) == 16 and (flags_p & 2) != 2:
-                                    temp.remove(comm[j+1])
+                                    temp.append(comm[j+1])
                                     comm.remove(comm[j+1])
                             compl_comms.append(temp)
                             temp = []
@@ -635,18 +471,17 @@ def task4_af(packets, protocol):
                                 compl_comms.append(temp)
                                 handshake_steps = 0
                                 temp = []
-                                i = 0
+                                i = -1
                                 found_fin = 1
                                 break
                             # DRUHY TYP
                             elif ack_p2 == 1 and end_type == 2 and end_com_steps == 2:
-                                complete = True
                                 temp.append(p2)
                                 comm.remove(p2)
                                 compl_comms.append(temp)
                                 handshake_steps = 0
                                 temp = []
-                                i = 0
+                                i = -1
                                 found_fin = 1
                                 break
                             # 6 typ alebo ked chcu dvaja naraz ukoncit komunikaciu
@@ -711,26 +546,41 @@ def task4_af(packets, protocol):
                     continue
             i += 1
         if i >= len(comm) and handshake_steps == 3:
-            incompl_coms.append(temp)
+            if len(temp)>0:
+                incompl_coms.append(temp)
 
 
     counter = 1
-    print("Počet kompletných komunikácií "+str(len(compl_comms)))
+    print("Počet kompletných komunikácií " + str(len(compl_comms)))
     print("Počet nekompletných komunikácií " + str(len(incompl_coms)))
     for comm in compl_comms:
         print("Kompletná komunikácia číslo "+str(counter))
+        j = 0
+        length_list = len(comm)
         for packet in comm:
+            j += 1
+            if length_list > 20 and (10 < j < (length_list - 10)):
+                if j == 11:
+                    print("...")
+                continue
             packet.print_info()
         counter +=1
-        #break # lebo vraj iba jednu komunikaciu
+        break # lebo vraj iba jednu komunikaciu
     counter = 1
     for comm in incompl_coms:
         if len(comm) > 0:
             print("Nekompletná komunikácia číslo " + str(counter))
+        j = 0
+        length_list = len(comm)
         for packet in comm:
+            j += 1
+            if length_list > 20 and (10 < j < (length_list - 10)):
+                if j == 11:
+                    print("...")
+                continue
             packet.print_info()
         counter += 1
-        #break
+        break
 
 def find_one_tftp_communication(comslist, ip_src, ip_dest, port_src, port_dst, index, packets):
     # idem iba dalej od toho paketu
@@ -758,8 +608,6 @@ def find_one_tftp_communication(comslist, ip_src, ip_dest, port_src, port_dst, i
 
 
 # TFTP KOMUNIKACIA
-
-
 def task4g(packets):
     counter = 0
     # list vsetkych komunikacii
@@ -940,10 +788,10 @@ def task4_i(packets):
     for un_com in unmatched:
         for packet in un_com:
             j += 1
-            # if length_list > 20 and (10 < j < (length_list - 10)):
-            #    if j == 11:
-            #        print("...")
-            #    continue
+            if length_list > 20 and (10 < j < (length_list - 10)):
+                if j == 11:
+                    print("...")
+                continue
             packet.print_info()
 
     length_list = len(unmatched)
@@ -1002,7 +850,7 @@ def ip_to_output(ip):
 
 
 def load_dictionary():
-    f = open("hodnoty")
+    f = open("hodnoty.txt")
     lines = f.readlines()
     global protocols_dictionary
     for line in lines:
